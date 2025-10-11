@@ -3,23 +3,42 @@
 // ==============================
 
 // --- Map & Basemap -----------------------------------------------------------
-const map = L.map('map', { zoomControl: true }).setView([45.4215, -75.6972], 11);
+const map = L.map('map', { zoomControl: false }).setView([45.4215, -75.6972], 11);
 
+// Move the zoom control to the upper right
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+// OpenStreetMap Standard tiles
 const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '&copy; OpenStreetMap'
 }).addTo(map);
 
 // --- Base-map search (addresses/places) via Leaflet Control Geocoder --------
+// --- restricted to Ontario + Quebec -------------------------
 if (window.L?.Control?.Geocoder) {
-  // Default: places a marker and zooms to result
+  // Approximate bounding box (W, S, E, N)
+  const bounds = L.latLngBounds(
+    [41.6, -95.0],  // southwest corner
+    [62.0, -57.0]   // northeast corner
+  );
+
   L.Control.geocoder({
     defaultMarkGeocode: true,
-    placeholder: 'Search location…'
+    placeholder: 'Search Ontario / Quebec…',
+    geocoder: L.Control.Geocoder.nominatim({
+      viewbox: [
+        bounds.getWest(), bounds.getSouth(),
+        bounds.getEast(), bounds.getNorth()
+      ].join(','),
+      bounded: 1,                 // restrict to viewbox
+      countrycodes: 'ca'          // only Canada
+    })
   }).addTo(map);
 } else {
   console.warn('Leaflet Control Geocoder not found. Check CDN script tag.');
 }
+
 
 // --- Panel wiring ------------------------------------------------------------
 const panel    = document.getElementById('controlPanel');
