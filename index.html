@@ -2,49 +2,46 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Ontario Trails — GPS Web Map (PWA)</title>
+  <title>Ontario Trails — GPS Web Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#1472ff" />
-
-  <!-- PWA -->
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
 
   <!-- Vendor CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css" />
-  <!-- ✅ Correct search plugin (exposes L.Control.Search) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-search@2.9.8/dist/leaflet-control-search.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-search@4.0.0/dist/leaflet-search.min.css" />
 
-  <!-- App CSS -->
+  <!-- App CSS (your styles) -->
   <link rel="stylesheet" href="./app.css" />
 </head>
-
 <body>
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Left panel: filters + pins + recorder -->
-  <div class="left-panel" id="leftPanel">
-    <h3>Filters — Trail Use</h3>
-    <div class="filters" id="filters"></div>
-    <div class="row">
-      <button class="btn" id="selectAll">Select all</button>
-      <button class="btn" id="clearAll">Clear</button>
+  <!-- Toggle button -->
+  <button id="controlToggle" class="control-toggle" aria-expanded="true" title="Open panel">☰ Controls</button>
+
+  <!-- Slide-in panel (start open so you can verify; JS can toggle it) -->
+  <aside id="controlPanel" class="control-panel open" aria-hidden="false">
+    <div class="panel-header">
+      <h2>Map Controls</h2>
+      <button id="closePanelBtn" class="icon-btn" title="Close">✕</button>
     </div>
 
-    <div class="section">
+    <section class="panel-section">
+      <h3>Filters</h3>
+      <div class="filters">
+        <label><input type="checkbox" id="showBase" checked> Base map</label>
+        <label><input type="checkbox" id="showTrails" checked> Trails (OTN)</label>
+        <label><input type="checkbox" id="showPins" checked> Pins</label>
+      </div>
+    </section>
+
+    <section class="panel-section">
       <h3>Pin Drops</h3>
       <div class="row">
         <select id="pinType">
-          <option>Camping</option>
-          <option>Water</option>
-          <option>Viewpoint</option>
-          <option>Hazard</option>
-          <option>Parking</option>
-          <option>Other</option>
+          <option>Camping</option><option>Water</option><option>Viewpoint</option>
+          <option>Hazard</option><option>Parking</option><option>Other</option>
         </select>
         <input id="pinLabel" type="text" placeholder="Label (e.g., Camp A)" />
       </div>
@@ -55,40 +52,44 @@
       <div class="row">
         <label class="btn" for="importPinsInput">⬆️ Upload pins (JSON/GPX)</label>
         <input id="importPinsInput" type="file" accept=".json,.geojson,.gpx" />
-        <span id="pinCount" style="align-self:center;opacity:0.8"></span>
+        <span id="pinCount" class="muted"></span>
       </div>
-    </div>
+    </section>
 
-    <div class="section">
+    <section class="panel-section">
       <h3>Track Recorder</h3>
       <div class="row">
         <button class="btn" id="trackStartBtn">● Start</button>
         <button class="btn" id="trackStopBtn" disabled>■ Stop</button>
         <button class="btn" id="trackSaveBtn" disabled>💾 Save GPX</button>
       </div>
-    </div>
-  </div>
+    </section>
 
-  <!-- Bottom-left toolbar -->
-  <div class="toolbar">
-    <button class="btn" id="locateBtn">📍 Locate</button>
-    <button class="btn" id="followBtn">▶️ Follow: Off</button>
-    <button class="btn" id="resetViewBtn">↺ Reset view</button>
-  </div>
+    <section class="panel-section">
+      <h3>Map Actions</h3>
+      <div class="row">
+        <button class="btn" id="locateBtn">📍 Locate</button>
+        <button class="btn" id="followBtn">▶️ Follow: Off</button>
+        <button class="btn" id="resetViewBtn">↺ Reset view</button>
+      </div>
+    </section>
 
-  <!-- Legend (optional) -->
-  <div class="legend">
-    <div><span class="legend-line legend-base"></span>Base</div>
-    <div><span class="legend-line legend-trail"></span>Trails (OTN)</div>
-    <div><span class="legend-dot"></span>Your location</div>
-  </div>
+    <section class="panel-section">
+      <h3>Legend</h3>
+      <div class="legend-items">
+        <div><span class="legend-line legend-base"></span>Base</div>
+        <div><span class="legend-line legend-trail"></span>Trails (OTN)</div>
+        <div><span class="legend-dot"></span>Your location</div>
+      </div>
+    </section>
+  </aside>
 
-  <!-- Vendor JS (Leaflet first, then plugins) -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
-  <script src="https://unpkg.com/leaflet-search@4.0.0/dist/leaflet-search.min.js"></script>
+  <!-- Vendor JS (defer so DOM is ready for your app.js) -->
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script defer src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
+  <script defer src="https://unpkg.com/leaflet-search@4.0.0/dist/leaflet-search.min.js"></script>
 
-  <!-- App JS (deferred so #map & controls exist) -->
-  <script src="./app.js" defer></script>
+  <!-- App JS -->
+  <script defer src="./app.js"></script>
 </body>
 </html>
