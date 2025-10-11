@@ -16,28 +16,60 @@ const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 // --- Base-map search (addresses/places) via Leaflet Control Geocoder --------
 // --- restricted to Ontario + Quebec -------------------------
+// --- Base-map search strictly limited to Ontario + Quebec --------------------
 if (window.L?.Control?.Geocoder) {
-  // Approximate bounding box (W, S, E, N)
-  const bounds = L.latLngBounds(
-    [41.6, -95.0],  // southwest corner
-    [62.0, -57.0]   // northeast corner
-  );
+  // Ontario + Quebec (loose but covering the provinces)
+  const ON_QC_BOUNDS = L.latLngBounds([41.6, -95.0], [62.0, -57.0]);
+  const ALLOWED_STATES = new Set(['Ontario', 'Québec', 'Quebec']);
 
-  L.Control.geocoder({
-    defaultMarkGeocode: true,
-    placeholder: 'Search Ontario / Quebec…',
-    geocoder: L.Control.Geocoder.nominatim({
-      viewbox: [
-        bounds.getWest(), bounds.getSouth(),
-        bounds.getEast(), bounds.getNorth()
-      ].join(','),
-      bounded: 1,                 // restrict to viewbox
-      countrycodes: 'ca'          // only Canada
-    })
-  }).addTo(map);
+  // Base Nominatim geocoder with server-side hints
+  const nom = L.Control.Geocoder.nominatim({
+    geocodingQueryParams: {
+      countrycodes: 'ca',                          // Canada only
+      viewbox: [ON_QC_BOUNDS.getWest(), ON_QC_BOUNDS.getSouth(),
+                ON_QC_BOUNDS.getEast(), ON_QC_BOUNDS.getNorth()].join(','),
+      bounded: 1                                   // prefer inside viewbox
+    }
+  });
+
+  // Wrapper that filters client-side for extra strictness
+  const constrained = {
+    geocode: function (query, cb, context) {
+      nom.geocode(query, function (results) {
+        const filtered = results.filter(r => {
+          const inBox = ON_QC_BOUNDS.contains(r.center);
+          const addr  = r.properties?.address || {};
+          const inCA  = (addr.country_code || '').toLowerCase() === 'ca';
+          const inPQ  = ALLOWED_STATES.has(addr.state || addr.province || '');
+          return inBox && inCA && inPQ;
+        });
+        cb.call(context, filtered);
+      });
+    },
+    reverse: function () {
+      // pass-through
+      return nom.reverse.apply(nom, arguments);
+    }
+  };
+
+  const geocoder = L.Control.geocoder({
+    geocoder: constrained,
+    defaultMarkGeocode: false,
+    placeholder: 'Search Ontario / Quebec…'
+  })
+  .on('markgeocode', (e) => {
+    // Fit to feature bounds if available; otherwise center on point
+    const g = e.geocode;
+    if (g && g.bbox)       map.fitBounds(g.bbox, { maxZoom: 15 });
+    else if (g?.center)    map.setView(g.center, 15);
+    // Drop a marker for context
+    if (g?.center) L.marker(g.center).addTo(map).bindPopup(g.name || 'Location').openPopup();
+  })
+  .addTo(map);
 } else {
   console.warn('Leaflet Control Geocoder not found. Check CDN script tag.');
 }
+
 
 
 // --- Panel wiring ------------------------------------------------------------
