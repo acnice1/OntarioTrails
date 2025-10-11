@@ -1,0 +1,52 @@
+html, body, #map { height: 100%; margin: 0; }
+
+.left-panel {
+  position: absolute; z-index: 1000; left: 10px; top: 60px; width: 300px;
+  background: rgba(255,255,255,0.96); backdrop-filter: blur(4px);
+  border: 1px solid #e3e8ef; border-radius: 12px; padding: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-size: 14px; color: #26374a;
+}
+.left-panel h3 { margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #335075; }
+
+.filters { display: grid; gap: 6px; max-height: 140px; overflow: auto; margin-bottom: 8px; }
+.filters label { display: flex; gap: 8px; align-items: center; }
+
+.section { border-top: 1px solid #e8edf3; margin-top: 10px; padding-top: 10px; }
+.row { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.row input[type="text"], .row select {
+  flex: 1 1 120px; padding: 6px 8px; border: 1px solid #d9e0e6; border-radius: 8px;
+}
+
+.btn {
+  border: 1px solid #e3e8ef; background: #fff; color: #26374a;
+  border-radius: 999px; padding: 8px 12px; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06); user-select: none;
+}
+.btn:hover { background: #f6f8fb; }
+
+.toolbar {
+  position: absolute; z-index: 1000; left: 10px; bottom: 12px;
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+
+.legend {
+  position: absolute; z-index: 1000; right: 10px; bottom: 12px;
+  background: rgba(255,255,255,0.92); border: 1px solid #e3e8ef; border-radius: 10px;
+  padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+}
+.legend-line { display:inline-block; width:16px; height:3px; vertical-align:middle; margin-right:6px; background:#000; }
+.legend-trail { background:#1472ff; }
+.legend-base { background:#000; opacity: 0.6; }
+.legend-muted { opacity: 0.8; }
+.legend-dot { display:inline-block; width:10px; height:10px; background:#ff00a8; border-radius:50%; vertical-align:middle; margin-right:6px; }
+
+input[type="file"] { display: none; }
+.link-like { color:#1472ff; cursor:pointer; text-decoration:underline; }
+
+/* Interaction handling */
+#map { position: relative; }
+.left-panel, .legend, .toolbar { pointer-events: none; }
+.left-panel *, .legend *, .toolbar * { pointer-events: auto; }
+.leaflet-container { touch-action: pan-x pan-y; }
