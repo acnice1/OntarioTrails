@@ -134,23 +134,175 @@ showTrails?.addEventListener('change', () => {
 });
 
 // --- Stocked Lakes (Fish_Stocking_Data.geojson) ------------------------------
+// Styling remains simple + readable on all basemaps
 const stockedStyle = { radius: 5, color: '#0a7', fillColor: '#0a7', fillOpacity: 0.9 };
+
+/** Utility: pretty-print keys and values for a popup */
+function titleCaseKey(k) {
+  return String(k)
+    .replace(/_/g, ' ')
+    .replace(/\b([a-z])/g, s => s.toUpperCase());
+}
+function formatVal(v) {
+  if (v == null) return '—';
+  if (typeof v === 'number') return v.toLocaleString();
+  // Try ISO date detection (YYYY-MM-DD or full ISO)
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
+    const d = new Date(v);
+    if (!isNaN(+d)) return d.toLocaleDateString();
+  }
+  return String(v);
+}
+
+/** Build a rich popup from whatever fields exist */
+function stockedPopupContent(props) {
+  const p = props || {};
+  // Try some common field names for a concise header block
+  //const waterbody = p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY || 'Stocked Lake';
+  const waterbody = p.OFFICIAL_WATERBODY_NAME || p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY || 'Stocked Lake';
+  const species   = p.SPECIES   || p.SPECIES_NAME || p.FISH_SPECIES || null;
+  const year      = p.YEAR      || p.STOCK_YEAR   || null;
+  const qty       = p.QUANTITY  || p.QTY          || p.NUM_STOCKED  || null;
+
+  // Header
+  let html = `<div style="min-width:220px">
+    <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>`;
+
+  // Quick facts row (only shows if present)
+  const quick = [];
+  if (species) quick.push(`<div><b>Species:</b> ${formatVal(species)}</div>`);
+  if (year)    quick.push(`<div><b>Year:</b> ${formatVal(year)}</div>`);
+  if (qty)     quick.push(`<div><b>Quantity:</b> ${formatVal(qty)}</div>`);
+  if (quick.length) {
+    html += `<div style="margin-bottom:8px">${quick.join('')}</div>`;
+  }
+
+  // Full property table (generic fallback so we never miss fields)
+  const rows = Object.keys(p).sort().map(k => {
+    // Skip obviously duplicate fields we already surfaced
+    if (['WATERBODY','LAKE_NAME','LAKE','WATER_BODY','SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'].includes(k)) return '';
+    return `<tr><td style="padding:2px 6px 2px 0;white-space:nowrap;color:#335075">${titleCaseKey(k)}</td><td style="padding:2px 0">${formatVal(p[k])}</td></tr>`;
+  }).join('');
+  if (rows.trim()) {
+    html += `<div style="max-height:180px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px">
+      <table style="font-size:12px;border-collapse:collapse">${rows}</table>
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
 const stockedLayer = L.geoJSON(null, {
   pointToLayer: (feat, latlng) => L.circleMarker(latlng, stockedStyle),
+
   onEachFeature: (feat, layer) => {
-    const p = feat.properties || {};
-    const name = p.WATERBODY || p.LAKE_NAME || p.LAKE || 'Stocked Lake';
-    layer.bindTooltip(String(name));
+  const p = feat.properties || {};
+
+  // Helper: find a property by any of several names (case/space/underscore-insensitive)
+  function pickProp(obj, candidates) {
+    if (!obj) return null;
+
+    // Exact match (fast path)
+    for (const name of candidates) {
+      const v = obj[name];
+      if (v != null && String(v).trim() !== '') return String(v).trim();
+    }
+
+    // Case-insensitive map of existing keys
+    const byLower = new Map(Object.keys(obj).map(k => [k.toLowerCase(), k]));
+
+    // Case-insensitive direct hit
+    for (const name of candidates) {
+      const k = byLower.get(String(name).toLowerCase());
+      if (k && obj[k] != null && String(obj[k]).trim() !== '') return String(obj[k]).trim();
+    }
+
+    // Space/underscore-insensitive (e.g., "Official Waterbody Name" vs "OFFICIAL_WATERBODY_NAME")
+    function norm(s) { return String(s).replace(/[\s_]/g, '').toLowerCase(); }
+    const entries = Object.entries(obj);
+    for (const name of candidates) {
+      const target = norm(name);
+      const hit = entries.find(([k]) => norm(k) === target);
+      if (hit && hit[1] != null && String(hit[1]).trim() !== '') return String(hit[1]).trim();
+    }
+
+    return null;
   }
+
+  // Preferred -> fallbacks
+  const waterbody =
+    pickProp(p, [
+      'Official_Waterbody_Name',
+      'OFFICIAL_WATERBODY_NAME',
+      'Unoffcial_Waterbody_Name'      
+    ]) ||
+    pickProp(p, ['WATERBODY', 'LAKE_NAME', 'LAKE', 'WATER_BODY']) ||
+    'Unknown waterbody';
+
+  const species = pickProp(p, ['SPECIES', 'SPECIES_NAME', 'FISH_SPECIES']) || '—';
+  const year    = pickProp(p, ['YEAR', 'STOCK_YEAR']) || '—';
+  const qty     = pickProp(p, ['QUANTITY', 'QTY', 'NUM_STOCKED']) || '—';
+
+  // Tooltip: Official Waterbody Name (robust)
+  layer.bindTooltip(waterbody, { direction: 'top', offset: [0, -6] });
+
+  // Popup: header + quick facts + full table of remaining props
+  const lat = feat.geometry?.coordinates?.[1]?.toFixed(5);
+  const lng = feat.geometry?.coordinates?.[0]?.toFixed(5);
+
+  let html = `
+    <div style="min-width:220px">
+      <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>
+      <div><b>Species:</b> ${species}</div>
+      <div><b>Year:</b> ${year}</div>
+      <div><b>Quantity:</b> ${qty}</div>`;
+
+  if (lat && lng) {
+    html += `<div style="margin-top:6px"><b>Location:</b> ${lat}, ${lng}</div>`;
+  }
+
+  // Table of all other properties (keeps whatever your dataset has)
+  const skip = new Set([
+     'Official_Waterbody_Name',
+      'OFFICIAL_WATERBODY_NAME',
+      'Unoffcial_Waterbody_Name', 
+    'WATERBODY','LAKE_NAME','LAKE','WATER_BODY',
+    'SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'
+  ]);
+  const rows = Object.keys(p)
+    .filter(k => !skip.has(k))
+    .sort((a,b) => a.localeCompare(b))
+    .map(k => {
+      const v = p[k]; const val = (v == null || String(v).trim() === '') ? '—' : String(v);
+      return `<tr>
+        <td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${k.replace(/_/g,' ')}</td>
+        <td style="padding:2px 0">${val}</td>
+      </tr>`;
+    })
+    .join('');
+
+  if (rows) {
+    html += `<div style="margin-top:8px;max-height:160px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px">
+      <table style="font-size:12px;border-collapse:collapse">${rows}</table>
+    </div>`;
+  }
+
+  html += `</div>`;
+
+  layer.bindPopup(html);
+}
+
+
+
 });
 
-// lazy-load once when the user enables the layer (or if it was already checked)
-// begin stocked lake loading logic 
+// lazy-load once when the user enables the layer (or if pre-checked)
 let stockedLoaded = false;
 async function ensureStockedLoaded() {
   if (stockedLoaded) return;
   try {
     const r = await fetch('./Fish_Stocking_Data.geojson');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const gj = await r.json();
     stockedLayer.addData(gj);
     stockedLoaded = true;
@@ -169,9 +321,8 @@ async function toggleStocked() {
   }
 }
 showStocked?.addEventListener('change', toggleStocked);
-
-// If the checkbox is pre-checked (you can change default in HTML), honor it on load
 toggleStocked();
+
 
 
 // --- Pins --------------------------------------------------------------------
