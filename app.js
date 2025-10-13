@@ -135,7 +135,7 @@ showTrails?.addEventListener('change', () => {
 
 // --- Stocked Lakes (Fish_Stocking_Data.geojson) ------------------------------
 // Styling remains simple + readable on all basemaps
-const stockedStyle = { radius: 5, color: '#0a7', fillColor: '#0a7', fillOpacity: 0.9 };
+const stockedStyle = { radius: 5, color: '#0a7', fillColor: 'rgba(170, 0, 68, 1)', fillOpacity: 0.9 };
 
 /** Utility: pretty-print keys and values for a popup */
 function titleCaseKey(k) {
