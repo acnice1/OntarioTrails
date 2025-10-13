@@ -76,3 +76,28 @@ html, body { height: 100%; margin: 0; }
 @media (max-width: 480px) {
   .control-panel { width: 92vw; }
 }
+
+/* Center crosshair overlay */
+#crosshair {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;       /* don't block map interactions */
+  z-index: 500;               /* above tiles, below panel (panel is 1099) */
+  width: 0; height: 0;        /* we draw with ::before/::after */
+}
+#crosshair::before,
+#crosshair::after {
+  content: "";
+  position: absolute;
+  background: #ff00a8;        /* matches your user location color vibe */
+  opacity: 0.9;
+  border-radius: 1px;
+}
+#crosshair::before {          /* horizontal bar */
+  width: 24px; height: 2px; left: -12px; top: -1px;
+}
+#crosshair::after {           /* vertical bar */
+  width: 2px; height: 24px; left: -1px; top: -12px;
+}
+

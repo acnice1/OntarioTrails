@@ -77,6 +77,20 @@ const panel    = document.getElementById('controlPanel');
 const toggle   = document.getElementById('controlToggle');
 const closeBtn = document.getElementById('closePanelBtn');
 
+// New controls
+const showCrosshair = document.getElementById('showCrosshair');
+const showStocked   = document.getElementById('showStocked');
+const crosshairEl   = document.getElementById('crosshair');
+
+// Crosshair visibility (center reticle)
+function updateCrosshair() {
+  if (!crosshairEl || !showCrosshair) return;
+  crosshairEl.style.display = showCrosshair.checked ? 'block' : 'none';
+}
+updateCrosshair();
+showCrosshair?.addEventListener('change', updateCrosshair);
+
+
 function openPanel() {
   if (!panel || !toggle) return;
   panel.classList.add('open');
@@ -118,6 +132,47 @@ fetch('./OTN.geojson')
 showTrails?.addEventListener('change', () => {
   showTrails.checked ? trailsLayer.addTo(map) : map.removeLayer(trailsLayer);
 });
+
+// --- Stocked Lakes (Fish_Stocking_Data.geojson) ------------------------------
+const stockedStyle = { radius: 5, color: '#0a7', fillColor: '#0a7', fillOpacity: 0.9 };
+const stockedLayer = L.geoJSON(null, {
+  pointToLayer: (feat, latlng) => L.circleMarker(latlng, stockedStyle),
+  onEachFeature: (feat, layer) => {
+    const p = feat.properties || {};
+    const name = p.WATERBODY || p.LAKE_NAME || p.LAKE || 'Stocked Lake';
+    layer.bindTooltip(String(name));
+  }
+});
+
+// lazy-load once when the user enables the layer (or if it was already checked)
+// begin stocked lake loading logic 
+let stockedLoaded = false;
+async function ensureStockedLoaded() {
+  if (stockedLoaded) return;
+  try {
+    const r = await fetch('./Fish_Stocking_Data.geojson');
+    const gj = await r.json();
+    stockedLayer.addData(gj);
+    stockedLoaded = true;
+  } catch (e) {
+    console.warn('Failed to load Fish_Stocking_Data.geojson:', e);
+  }
+}
+
+async function toggleStocked() {
+  if (!showStocked) return;
+  if (showStocked.checked) {
+    await ensureStockedLoaded();
+    stockedLayer.addTo(map);
+  } else {
+    map.removeLayer(stockedLayer);
+  }
+}
+showStocked?.addEventListener('change', toggleStocked);
+
+// If the checkbox is pre-checked (you can change default in HTML), honor it on load
+toggleStocked();
+
 
 // --- Pins --------------------------------------------------------------------
 const pinsLayer       = L.layerGroup().addTo(map);

@@ -17,6 +17,9 @@
   <!-- Map -->
   <div id="map"></div>
 
+  <!-- Crosshair in center -->
+  <div id="crosshair" aria-hidden="true"></div>
+
   <!-- Toggle button -->
   <button id="controlToggle" class="control-toggle" aria-expanded="true" title="Open panel">☰ Controls</button>
 
@@ -27,14 +30,18 @@
       <button id="closePanelBtn" class="icon-btn" title="Close">✕</button>
     </div>
 
-    <section class="panel-section">
-      <h3>Filters</h3>
-      <div class="filters">
-        <label><input type="checkbox" id="showBase" checked> Base map</label>
-        <label><input type="checkbox" id="showTrails" checked> Trails (OTN)</label>
-        <label><input type="checkbox" id="showPins" checked> Pins</label>
-      </div>
-    </section>
+<section class="panel-section">
+  <h3>Filters</h3>
+  <div class="filters">
+    <label><input type="checkbox" id="showBase" checked> Base map</label>
+    <label><input type="checkbox" id="showTrails" checked> Trails (OTN)</label>
+    <label><input type="checkbox" id="showPins" checked> Pins</label>
+
+    <!-- NEW -->
+    <label><input type="checkbox" id="showCrosshair" checked> Crosshair</label>
+    <label><input type="checkbox" id="showStocked"> Stocked Lakes</label>
+  </div>
+</section>
 
     <section class="panel-section">
       <h3>Pin Drops</h3>
