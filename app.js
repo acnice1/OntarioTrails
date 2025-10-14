@@ -219,7 +219,8 @@ function accessPopupContent(p = {}) {
   // Add a compact table of the rest for transparency/debug
   const keys = Object.keys(p || {}).sort();
   if (keys.length) {
-    html += `<details style="margin-top:.4rem;"><summary>Details</summary><div style="max-height:160px;overflow:auto;"><table class="kv">`;
+    html += `<details open style="margin-top:.4rem;"><summary>Details</summary><div style="max-height:160px;overflow:auto;"><table class="kv">`;
+
     for (const k of keys) {
       html += `<tr><th>${titleCaseKey(k)}</th><td>${formatVal(p[k])}</td></tr>`;
     }

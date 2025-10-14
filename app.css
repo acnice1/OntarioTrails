@@ -47,7 +47,11 @@ html, body { height: 100%; margin: 0; }
 .panel-section:last-child { border-bottom: none; }
 .panel-section h3 { margin: 0 0 8px; font-size: 14px; color: var(--ink-2); }
 
-.filters { display: grid; gap: 6px; max-height: 140px; overflow: auto; }
+.filters { 
+    display: grid; 
+    gap: 6px; 
+    max-height: 160px; 
+    overflow: auto; }
 .filters label { display: flex; gap: 8px; align-items: center; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
