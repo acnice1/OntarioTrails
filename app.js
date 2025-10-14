@@ -76,11 +76,10 @@ if (window.L?.Control?.Geocoder) {
 const panel    = document.getElementById('controlPanel');
 const toggle   = document.getElementById('controlToggle');
 const closeBtn = document.getElementById('closePanelBtn');
-
-// New controls
 const showCrosshair = document.getElementById('showCrosshair');
 const showStocked   = document.getElementById('showStocked');
 const crosshairEl   = document.getElementById('crosshair');
+const showAccess = document.getElementById('showAccess');
 
 // Crosshair visibility (center reticle)
 function updateCrosshair() {
@@ -192,6 +191,79 @@ function stockedPopupContent(props) {
   return html;
 }
 
+// --- Access Points (Fishing_Access_Point.geojson) ---------------------------
+// Visual style: small orange circle markers
+const accessStyle = { radius: 5, color: '#b85', fillColor: '#f8a55e', fillOpacity: 0.95 };
+
+// Reuse titleCaseKey / formatVal helpers from Stocked Lakes
+
+/** Build a lightweight popup for Access Points */
+function accessPopupContent(p = {}) {
+  // Try common names if present, else fallbacks
+  const name =
+    p.NAME || p.SITE_NAME || p.ACCESS_POINT_NAME || p.LOCATION_NAME || 'Access Point';
+  const water =
+    p.WATERBODY || p.WATER_BODY || p.LAKE || p.OFFICIAL_WATERBODY_NAME || null;
+  const type =
+    p.TYPE || p.ACCESS_TYPE || p.FEATURE_TYPE || p.FACILITY_TYPE || null;
+  const launch =
+    p.LAUNCH_TYPE || p.BOAT_LAUNCH || p.RAMP_TYPE || null;
+
+  let html = `<div class="popup access-popup">
+     <h4 style="margin:0 0 .3rem 0;">${name}</h4>`;
+    
+  if (water) html += `<div><strong>Waterbody:</strong> ${formatVal(water)}</div>`;
+  if (type)  html += `<div><strong>Type:</strong> ${formatVal(type)}</div>`;
+  if (launch)html += `<div><strong>Launch:</strong> ${formatVal(launch)}</div>`;
+
+  // Add a compact table of the rest for transparency/debug
+  const keys = Object.keys(p || {}).sort();
+  if (keys.length) {
+    html += `<details style="margin-top:.4rem;"><summary>Details</summary><div style="max-height:160px;overflow:auto;"><table class="kv">`;
+    for (const k of keys) {
+      html += `<tr><th>${titleCaseKey(k)}</th><td>${formatVal(p[k])}</td></tr>`;
+    }
+    html += `</table></div></details>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+const accessLayer = L.geoJSON(null, {
+  pointToLayer: (feat, latlng) => L.circleMarker(latlng, accessStyle),
+  onEachFeature: (feat, layer) => {
+    layer.bindPopup(accessPopupContent(feat.properties || {}), { maxWidth: 340 });
+  }
+});
+let accessLoaded = false;
+
+async function ensureAccessLoaded() {
+  if (accessLoaded) return;
+  try {
+    const r = await fetch('./Fishing_Access_Point.geojson');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const gj = await r.json();
+    accessLayer.addData(gj);
+    accessLoaded = true;
+  } catch (e) {
+    console.warn('Failed to load Fishing_Access_Point.geojson:', e);
+  }
+}
+
+async function toggleAccess() {
+  if (!showAccess) return;
+  if (showAccess.checked) {
+    await ensureAccessLoaded();
+    accessLayer.addTo(map);
+  } else {
+    map.removeLayer(accessLayer);
+  }
+}
+showAccess?.addEventListener('change', toggleAccess);
+// initial state
+toggleAccess();
+
+
 /* ========= On-click geocode & highlight (Ontario-bounded) ========= */
 
 // Ontario bbox (W,S,E,N)
@@ -205,8 +277,26 @@ function nomViewboxFrom(bbox) {
 const NOM_VIEWBOX = nomViewboxFrom(ONTARIO_BBOX);
 
 // Simple in-memory cache: name -> candidate (or null)
+// Simple in-memory cache: (name + local area) -> candidate (or null)
 const geocodeCache = new Map();
 const normKey = s => String(s || '').trim().toLowerCase();
+
+// Build a cache key that includes a quantized hint location
+function nameCacheKey(name, hintLL) {
+  if (!hintLL) return normKey(name);
+  // Quantize to ~100 m so nearby clicks reuse, far clicks do not
+  const latQ = (+hintLL.lat).toFixed(3);
+  const lngQ = (+hintLL.lng).toFixed(3);
+  return `${normKey(name)}@${latQ},${lngQ}`;
+}
+
+// Rough distance in meters (good enough for filtering to 50 km)
+function metersBetween(a, b) {
+  // Fast equirectangular-ish approximation for short ranges
+  const dx = (a.lng - b.lng) * Math.cos((a.lat + b.lat) * Math.PI / 360);
+  const dy = (a.lat - b.lat);
+  return Math.hypot(dx, dy) * 111_320; // meters per deg approx
+}
 
 // Prefer water features, add small proximity bonus to the clicked dot
 function scoreCandidate(c, hintLL) {
@@ -225,8 +315,9 @@ function scoreCandidate(c, hintLL) {
   return score;
 }
 
+// Geocode a lake name, optionally with a hint lat/lng to prioritize nearby results
 async function geocodeLake(name, hintLL) {
-  const k = normKey(name);
+  const k = nameCacheKey(name, hintLL);
   if (geocodeCache.has(k)) return geocodeCache.get(k);
 
   const q = `${name}, Ontario, Canada`;
@@ -239,7 +330,7 @@ async function geocodeLake(name, hintLL) {
     addressdetails: '0',
     polygon_geojson: '1',
     dedupe: '1',
-    limit: '8'
+    limit: '12'
   });
 
   let arr = [];
@@ -247,12 +338,20 @@ async function geocodeLake(name, hintLL) {
     const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
       headers: { 'Accept-Language': 'en-CA' },
       referrerPolicy: 'no-referrer-when-downgrade'
-      // (Optional) include 'email' param in URL if you want to be explicit for policy
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     arr = await res.json();
   } catch (e) {
     console.warn('Geocode error:', e);
+  }
+
+  // If we have a hint location (the stocked lake pin), enforce a hard 50 km fence
+  if (hintLL && Array.isArray(arr)) {
+    const origin = { lat: +hintLL.lat, lng: +hintLL.lng };
+    arr = arr.filter(c => {
+      const cand = { lat: +c.lat, lng: +c.lon };
+      return metersBetween(origin, cand) <= 50_000; // 50 km
+    });
   }
 
   if (!Array.isArray(arr) || arr.length === 0) {
@@ -273,6 +372,8 @@ async function geocodeLake(name, hintLL) {
   geocodeCache.set(k, best || null);
   return best || null;
 }
+
+
 
 // A small overlay for the highlight geometry
 const geocodeHighlight = L.featureGroup().addTo(map);
