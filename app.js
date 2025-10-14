@@ -192,108 +192,222 @@ function stockedPopupContent(props) {
   return html;
 }
 
+/* ========= On-click geocode & highlight (Ontario-bounded) ========= */
+
+// Ontario bbox (W,S,E,N)
+const ONTARIO_BBOX = [-95.16, 41.68, -74.34, 56.86];
+
+// Convert to Nominatim viewbox string (left,top,right,bottom)
+function nomViewboxFrom(bbox) {
+  const [W, S, E, N] = bbox;
+  return `${W},${N},${E},${S}`;
+}
+const NOM_VIEWBOX = nomViewboxFrom(ONTARIO_BBOX);
+
+// Simple in-memory cache: name -> candidate (or null)
+const geocodeCache = new Map();
+const normKey = s => String(s || '').trim().toLowerCase();
+
+// Prefer water features, add small proximity bonus to the clicked dot
+function scoreCandidate(c, hintLL) {
+  const key = `${c.class}:${c.type}`;
+  let score = 0;
+  if (key === 'natural:water' || key === 'natural:lake' || key === 'water:lake' ||
+      key === 'water:reservoir' || key === 'waterway:riverbank') score += 3;
+  const dn = (c.display_name || '').toLowerCase();
+  if (dn.includes('lake') || dn.includes('lac')) score += 1;
+  if (hintLL) {
+    // very rough meters from lat/lng delta (good enough for tie-break)
+    const d = Math.hypot(hintLL.lat - parseFloat(c.lat), hintLL.lng - parseFloat(c.lon)) * 111000;
+    if (d < 500) score += 3;
+    else if (d < 2000) score += 1;
+  }
+  return score;
+}
+
+async function geocodeLake(name, hintLL) {
+  const k = normKey(name);
+  if (geocodeCache.has(k)) return geocodeCache.get(k);
+
+  const q = `${name}, Ontario, Canada`;
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    q,
+    countrycodes: 'ca',
+    viewbox: NOM_VIEWBOX,
+    bounded: '1',
+    addressdetails: '0',
+    polygon_geojson: '1',
+    dedupe: '1',
+    limit: '8'
+  });
+
+  let arr = [];
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+      headers: { 'Accept-Language': 'en-CA' },
+      referrerPolicy: 'no-referrer-when-downgrade'
+      // (Optional) include 'email' param in URL if you want to be explicit for policy
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    arr = await res.json();
+  } catch (e) {
+    console.warn('Geocode error:', e);
+  }
+
+  if (!Array.isArray(arr) || arr.length === 0) {
+    geocodeCache.set(k, null);
+    return null;
+  }
+
+  const best = arr.map(c => ({
+    class: c.class,
+    type: c.type,
+    lat: parseFloat(c.lat),
+    lng: parseFloat(c.lon),
+    display_name: c.display_name,
+    geojson: c.geojson || null,
+    _score: scoreCandidate(c, hintLL || null)
+  })).sort((a, b) => b._score - a._score)[0];
+
+  geocodeCache.set(k, best || null);
+  return best || null;
+}
+
+// A small overlay for the highlight geometry
+const geocodeHighlight = L.featureGroup().addTo(map);
+
+function pulseLayer(layer, ms = 2000) {
+  const t0 = Date.now();
+  let on = false;
+  const base = (layer.setStyle ? { ...layer.options } : null);
+  const iv = setInterval(() => {
+    const t = Date.now() - t0;
+    if (t > ms) {
+      clearInterval(iv);
+      if (base && layer.setStyle) layer.setStyle(base);
+      return;
+    }
+    on = !on;
+    if (layer.setStyle) {
+      layer.setStyle(on ? { opacity: 1, weight: 5, color: '#00c7a9' }
+                        : { opacity: 0.5, weight: 3, color: '#00c7a9' });
+    } else if (layer.setRadius) {
+      layer.setRadius(on ? 9 : 6);
+    }
+  }, 220);
+}
+
+function showGeocodeHighlight(candidate) {
+  geocodeHighlight.clearLayers();
+  let hl;
+  if (candidate?.geojson && (candidate.geojson.type === 'Polygon' || candidate.geojson.type === 'MultiPolygon')) {
+    hl = L.geoJSON(candidate.geojson, { style: { color: '#00c7a9', weight: 3, fill: false, opacity: 0.8 } }).addTo(geocodeHighlight);
+    try { map.fitBounds(hl.getBounds(), { padding: [24, 24], maxZoom: 15 }); } catch (_) {}
+  } else if (Number.isFinite(candidate?.lat) && Number.isFinite(candidate?.lng)) {
+    hl = L.circleMarker([candidate.lat, candidate.lng], { radius: 8, color: '#00c7a9', fillColor: '#00c7a9', fillOpacity: 0.7 }).addTo(geocodeHighlight);
+    map.setView([candidate.lat, candidate.lng], Math.max(map.getZoom(), 14));
+  }
+  if (hl) pulseLayer(hl);
+}
+
+// Helper for robust waterbody name picking inside the feature
+function pickProp(obj, candidates) {
+  if (!obj) return null;
+  // Exact
+  for (const name of candidates) {
+    const v = obj[name];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  // Case-insensitive & space/underscore-insensitive
+  const entries = Object.entries(obj);
+  const norm = s => String(s).replace(/[\s_]/g, '').toLowerCase();
+  for (const name of candidates) {
+    const target = norm(name);
+    const hit = entries.find(([k, v]) => v != null && String(v).trim() !== '' && norm(k) === target);
+    if (hit) return String(hit[1]).trim();
+  }
+  return null;
+}
+
+/* ========= end geocode helpers ========= */
+
 const stockedLayer = L.geoJSON(null, {
   pointToLayer: (feat, latlng) => L.circleMarker(latlng, stockedStyle),
 
   onEachFeature: (feat, layer) => {
-  const p = feat.properties || {};
+    const p = feat.properties || {};
 
-  // Helper: find a property by any of several names (case/space/underscore-insensitive)
-  function pickProp(obj, candidates) {
-    if (!obj) return null;
+    // Preferred -> fallbacks
+    const waterbody =
+      pickProp(p, [
+        'Official_Waterbody_Name',
+        'OFFICIAL_WATERBODY_NAME',
+        'Unoffcial_Waterbody_Name'
+      ]) ||
+      pickProp(p, ['WATERBODY', 'LAKE_NAME', 'LAKE', 'WATER_BODY']) ||
+      'Unknown waterbody';
 
-    // Exact match (fast path)
-    for (const name of candidates) {
-      const v = obj[name];
-      if (v != null && String(v).trim() !== '') return String(v).trim();
+    const species = pickProp(p, ['SPECIES', 'SPECIES_NAME', 'FISH_SPECIES']) || '—';
+    const year    = pickProp(p, ['YEAR', 'STOCK_YEAR']) || '—';
+    const qty     = pickProp(p, ['QUANTITY', 'QTY', 'NUM_STOCKED']) || '—';
+
+    // Tooltip: Official Waterbody Name (robust)
+    layer.bindTooltip(waterbody, { direction: 'top', offset: [0, -6] });
+
+    // Popup: header + quick facts + full table of remaining props
+    const lat = feat.geometry?.coordinates?.[1]?.toFixed(5);
+    const lng = feat.geometry?.coordinates?.[0]?.toFixed(5);
+
+    let html = `
+      <div style="min-width:220px">
+        <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>
+        <div><b>Species:</b> ${species}</div>
+        <div><b>Year:</b> ${year}</div>
+        <div><b>Quantity:</b> ${qty}</div>`;
+
+    if (lat && lng) {
+      html += `<div style="margin-top:6px"><b>Location:</b> ${lat}, ${lng}</div>`;
     }
 
-    // Case-insensitive map of existing keys
-    const byLower = new Map(Object.keys(obj).map(k => [k.toLowerCase(), k]));
+    const skip = new Set([
+      'Official_Waterbody_Name', 'OFFICIAL_WATERBODY_NAME', 'Unoffcial_Waterbody_Name',
+      'WATERBODY','LAKE_NAME','LAKE','WATER_BODY',
+      'SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'
+    ]);
+    const rows = Object.keys(p)
+      .filter(k => !skip.has(k))
+      .sort((a,b) => a.localeCompare(b))
+      .map(k => {
+        const v = p[k]; const val = (v == null || String(v).trim() === '') ? '—' : String(v);
+        return `<tr>
+          <td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${k.replace(/_/g,' ')}</td>
+          <td style="padding:2px 0">${val}</td>
+        </tr>`;
+      })
+      .join('');
 
-    // Case-insensitive direct hit
-    for (const name of candidates) {
-      const k = byLower.get(String(name).toLowerCase());
-      if (k && obj[k] != null && String(obj[k]).trim() !== '') return String(obj[k]).trim();
+    if (rows) {
+      html += `<div style="margin-top:8px;max-height:160px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px">
+        <table style="font-size:12px;border-collapse:collapse">${rows}</table>
+      </div>`;
     }
 
-    // Space/underscore-insensitive (e.g., "Official Waterbody Name" vs "OFFICIAL_WATERBODY_NAME")
-    function norm(s) { return String(s).replace(/[\s_]/g, '').toLowerCase(); }
-    const entries = Object.entries(obj);
-    for (const name of candidates) {
-      const target = norm(name);
-      const hit = entries.find(([k]) => norm(k) === target);
-      if (hit && hit[1] != null && String(hit[1]).trim() !== '') return String(hit[1]).trim();
-    }
+    html += `</div>`;
 
-    return null;
+    layer.bindPopup(html);
+
+    // NEW: On click → geocode by name, cache, highlight polygon/point, zoom + pulse
+    layer.on('click', async () => {
+      const ll = layer.getLatLng ? layer.getLatLng() : null;
+      const cand = await geocodeLake(waterbody, ll);
+      if (!cand) {
+        console.warn('No geocode match for', waterbody);
+        return;
+      }
+      showGeocodeHighlight(cand);
+    });
   }
-
-  // Preferred -> fallbacks
-  const waterbody =
-    pickProp(p, [
-      'Official_Waterbody_Name',
-      'OFFICIAL_WATERBODY_NAME',
-      'Unoffcial_Waterbody_Name'      
-    ]) ||
-    pickProp(p, ['WATERBODY', 'LAKE_NAME', 'LAKE', 'WATER_BODY']) ||
-    'Unknown waterbody';
-
-  const species = pickProp(p, ['SPECIES', 'SPECIES_NAME', 'FISH_SPECIES']) || '—';
-  const year    = pickProp(p, ['YEAR', 'STOCK_YEAR']) || '—';
-  const qty     = pickProp(p, ['QUANTITY', 'QTY', 'NUM_STOCKED']) || '—';
-
-  // Tooltip: Official Waterbody Name (robust)
-  layer.bindTooltip(waterbody, { direction: 'top', offset: [0, -6] });
-
-  // Popup: header + quick facts + full table of remaining props
-  const lat = feat.geometry?.coordinates?.[1]?.toFixed(5);
-  const lng = feat.geometry?.coordinates?.[0]?.toFixed(5);
-
-  let html = `
-    <div style="min-width:220px">
-      <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>
-      <div><b>Species:</b> ${species}</div>
-      <div><b>Year:</b> ${year}</div>
-      <div><b>Quantity:</b> ${qty}</div>`;
-
-  if (lat && lng) {
-    html += `<div style="margin-top:6px"><b>Location:</b> ${lat}, ${lng}</div>`;
-  }
-
-  // Table of all other properties (keeps whatever your dataset has)
-  const skip = new Set([
-     'Official_Waterbody_Name',
-      'OFFICIAL_WATERBODY_NAME',
-      'Unoffcial_Waterbody_Name', 
-    'WATERBODY','LAKE_NAME','LAKE','WATER_BODY',
-    'SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'
-  ]);
-  const rows = Object.keys(p)
-    .filter(k => !skip.has(k))
-    .sort((a,b) => a.localeCompare(b))
-    .map(k => {
-      const v = p[k]; const val = (v == null || String(v).trim() === '') ? '—' : String(v);
-      return `<tr>
-        <td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${k.replace(/_/g,' ')}</td>
-        <td style="padding:2px 0">${val}</td>
-      </tr>`;
-    })
-    .join('');
-
-  if (rows) {
-    html += `<div style="margin-top:8px;max-height:160px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px">
-      <table style="font-size:12px;border-collapse:collapse">${rows}</table>
-    </div>`;
-  }
-
-  html += `</div>`;
-
-  layer.bindPopup(html);
-}
-
-
-
 });
 
 // lazy-load once when the user enables the layer (or if pre-checked)
