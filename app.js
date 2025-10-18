@@ -141,6 +141,7 @@ window.addEventListener('orientationchange', setVHVar);
 
   const crosshairEl   = document.getElementById('crosshair');
   const contourHintEl = document.getElementById('contourHint');
+  
 
   // Let the panel scroll/tap without panning/zooming the map underneath
 if (panel) {
@@ -701,6 +702,7 @@ clupaOverlayOutline.on('removefeature', removeClupaLabel);
 
 
 
+
   // --- Pins --------------------------------------------------------------------
   const pinsLayer       = L.layerGroup().addTo(map);
   const pinType         = document.getElementById('pinType');
@@ -778,6 +780,8 @@ clupaOverlayOutline.on('removefeature', removeClupaLabel);
     URL.revokeObjectURL(url);
   }
 
+
+  
   // --- Locate / Follow / Reset -------------------------------------------------
   const locateBtn    = document.getElementById('locateBtn');
   const followBtn    = document.getElementById('followBtn');
@@ -817,6 +821,7 @@ clupaOverlayOutline.on('removefeature', removeClupaLabel);
     map.setView(HOME.center, HOME.zoom);
   });
 
+  
   // ============================================================================
   // Contours integration (zoom-gated, labels, snap click, DEM) + Legend sync
   // ============================================================================
@@ -1015,6 +1020,103 @@ function originLatLng(layer, feature) {
     }catch(e){ elevTip.remove(); }
   }, 200);
 
+
+  // ===== Persistent settings (localStorage) ===================================
+const SETTINGS_KEY = 'ontarioTrails.settings.v1';
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); }
+  catch { return {}; }
+}
+function saveSettings(s) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
+}
+const _settings = loadSettings();
+let _saveTimer = null;
+function setSetting(k, v) {
+  _settings[k] = v;
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => saveSettings(_settings), 150);
+}
+
+// Helpers to wire controls safely
+function restoreCheckbox(idOrEl, onChange) {
+  const el = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
+  if (!el) return;
+  const key = `ck:${el.id}`;
+  if (_settings[key] !== undefined) el.checked = !!_settings[key];
+  // Run your existing logic once to reflect the state
+  onChange?.(el.checked);
+  // Persist on future changes
+  el.addEventListener('change', () => setSetting(key, el.checked));
+}
+function restoreRange(idOrEl, applyFn /* number -> void */) {
+  const el = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
+  if (!el) return;
+  const key = `rng:${el.id}`;
+  if (_settings[key] !== undefined) el.value = String(_settings[key]);
+  const apply = () => { applyFn(Number(el.value)); setSetting(key, Number(el.value)); };
+  apply();                  // apply once at load
+  el.addEventListener('input', apply);  // live updates while dragging
+}
+
+// Restore map view (center/zoom) and persist on move
+(function persistMapView(){
+  const k = 'map:view';
+  const mv = _settings[k];
+  if (mv && Array.isArray(mv.center) && Number.isFinite(mv.zoom)) {
+    try { map.setView(mv.center, mv.zoom); } catch {}
+  }
+  const saveView = () => setSetting(k, { center: [map.getCenter().lat, map.getCenter().lng], zoom: map.getZoom() });
+  map.on('moveend', saveView);
+})();
+
+// ===== Apply to your existing controls ======================================
+
+// Checkboxes that already have handlers: we call their logic once using the same branch
+// Trails
+restoreCheckbox(showTrails, (on) => { on ? trailsLayer.addTo(map) : map.removeLayer(trailsLayer); });
+
+// Stocked lakes
+restoreCheckbox(showStocked, async (on) => { 
+  if (on) { await ensureStockedLoaded(); if (stockedLoaded) stockedLayer.addTo(map); else showStocked.checked = false; }
+  else map.removeLayer(stockedLayer);
+});
+
+// Access points
+restoreCheckbox(showAccess, async (on) => {
+  if (on) { await ensureAccessLoaded(); if (accessLoaded) accessLayer.addTo(map); else showAccess.checked = false; }
+  else map.removeLayer(accessLayer);
+});
+
+// Contours
+restoreCheckbox(showContours, (on) => { /* your existing function manages visibility */
+  if (on) { /* ensure it reacts immediately */ }
+  updateContourVisibility();
+});
+
+// Basemap (if you expose a toggle)
+restoreCheckbox(showBaseCk, (on) => { on ? base.addTo(map) : map.removeLayer(base); });
+
+// Crosshair
+restoreCheckbox(showCrosshair, () => updateCrosshair());
+
+// Ontario Imagery
+restoreCheckbox(showImagery, (on) => { on ? imagery.addTo(map) : map.removeLayer(imagery); });
+
+// CLUPA family (only if you added those IDs in HTML)
+restoreCheckbox('showCLUPAProv',   (on) => { if (typeof clupaProv   !== 'undefined') on ? clupaProv.addTo(map)   : map.removeLayer(clupaProv); });
+restoreCheckbox('showCLUPAOverlay', (on) => { if (typeof clupaOverlay!== 'undefined') on ? clupaOverlay.addTo(map): map.removeLayer(clupaOverlay); });
+
+// Optional: Parks/Reserves/Canada Lands (only if present)
+//restoreCheckbox('showProvParks', (on) => { if (typeof provParks   !== 'undefined') on ? provParks.addTo(map)   : map.removeLayer(provParks); });
+//restoreCheckbox('showConsRes',   (on) => { if (typeof consRes     !== 'undefined') on ? consRes.addTo(map)     : map.removeLayer(consRes); });
+//restoreCheckbox('showCanadaLands', (on) => { if (typeof canadaLands!== 'undefined') on ? canadaLands.addTo(map): map.removeLayer(canadaLands); });
+
+// Imagery blend slider (keeps your existing setImageryOpacity)
+restoreRange('imageryOpacity', (v) => setImageryOpacity(Number.isFinite(v) ? v : 100));
+
+
   // Snap-to-nearest contour
   function closestPointOnSegments(pixel, pixelPts) {
     const { pointToSegmentDistance, closestPointOnSegment } = L.LineUtil;
@@ -1080,4 +1182,8 @@ function originLatLng(layer, feature) {
   toggleStocked();          // initial
   showPinsCk?.addEventListener('change', () => {
     showPinsCk.checked ? pinsLayer.addTo(map) : map.removeLayer(pinsLayer);
-  });
+  }
+
+
+
+);
