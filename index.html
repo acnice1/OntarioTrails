@@ -33,15 +33,24 @@
     <section class="panel-section">
       <h3>Filters</h3>
       <div class="filters" id="filters">
+
+
         <label><input type="checkbox" id="showBase" checked> Base map</label>
-        <label><input type="checkbox" id="showTrails" checked> Trails (OTN)</label>
+        <label><input type="checkbox" id="showImagery"> Satellite Imagery (WMTS)</label>
+
+                <!-- Imagery blend slider -->
+<div id="imageryBlendRow" style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0 0 1.5rem;">
+  <label for="imageryOpacity" style="font-size:0.9rem;opacity:.85;min-width:3.5rem;">Blend</label>
+  <input type="range" id="imageryOpacity" min="0" max="100" value="50" step="1" style="flex:1;">
+  <span id="imageryOpacityVal" style="font-variant-numeric:tabular-nums;">100%</span>
+</div>
+        <label><input type="checkbox" id="showContours"> Elevation Contours</label>
         <label><input type="checkbox" id="showPins" checked> Pins</label>
         <label><input type="checkbox" id="showCrosshair" checked> Crosshair</label>
         <label><input type="checkbox" id="showStocked"> Stocked Lakes</label>
         <label><input type="checkbox" id="showAccess"> Access Points</label>
-        <label><input type="checkbox" id="showContours"> Contours</label>
-        <label><input type="checkbox" id="showImagery"> Satellite Imagery (WMTS)</label>
-
+        <label><input type="checkbox" id="showTrails"> Trails (OTN)</label>
+            
       </div>
     </section>
 
