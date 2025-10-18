@@ -1,5 +1,5 @@
 // ==============================
-// Ontario Trails — app.js (clean)
+// Ontario Trails — app.js (with Contours toggle)
 // ==============================
 
 // --- Map & Basemap -----------------------------------------------------------
@@ -14,25 +14,20 @@ const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap'
 }).addTo(map);
 
-// --- Base-map search (addresses/places) via Leaflet Control Geocoder --------
-// --- restricted to Ontario + Quebec -------------------------
-// --- Base-map search strictly limited to Ontario + Quebec --------------------
+// --- Base-map search (Ontario/Quebec bounded) -------------------------------
 if (window.L?.Control?.Geocoder) {
-  // Ontario + Quebec (loose but covering the provinces)
   const ON_QC_BOUNDS = L.latLngBounds([41.6, -95.0], [62.0, -57.0]);
   const ALLOWED_STATES = new Set(['Ontario', 'Québec', 'Quebec']);
 
-  // Base Nominatim geocoder with server-side hints
   const nom = L.Control.Geocoder.nominatim({
     geocodingQueryParams: {
-      countrycodes: 'ca',                          // Canada only
+      countrycodes: 'ca',
       viewbox: [ON_QC_BOUNDS.getWest(), ON_QC_BOUNDS.getSouth(),
                 ON_QC_BOUNDS.getEast(), ON_QC_BOUNDS.getNorth()].join(','),
-      bounded: 1                                   // prefer inside viewbox
+      bounded: 1
     }
   });
 
-  // Wrapper that filters client-side for extra strictness
   const constrained = {
     geocode: function (query, cb, context) {
       nom.geocode(query, function (results) {
@@ -47,22 +42,19 @@ if (window.L?.Control?.Geocoder) {
       });
     },
     reverse: function () {
-      // pass-through
       return nom.reverse.apply(nom, arguments);
     }
   };
 
-  const geocoder = L.Control.geocoder({
+  L.Control.geocoder({
     geocoder: constrained,
     defaultMarkGeocode: false,
     placeholder: 'Search Ontario / Quebec…'
   })
   .on('markgeocode', (e) => {
-    // Fit to feature bounds if available; otherwise center on point
     const g = e.geocode;
-    if (g && g.bbox)       map.fitBounds(g.bbox, { maxZoom: 15 });
-    else if (g?.center)    map.setView(g.center, 15);
-    // Drop a marker for context
+    if (g && g.bbox) map.fitBounds(g.bbox, { maxZoom: 15 });
+    else if (g?.center) map.setView(g.center, 15);
     if (g?.center) L.marker(g.center).addTo(map).bindPopup(g.name || 'Location').openPopup();
   })
   .addTo(map);
@@ -70,25 +62,22 @@ if (window.L?.Control?.Geocoder) {
   console.warn('Leaflet Control Geocoder not found. Check CDN script tag.');
 }
 
-
-
 // --- Panel wiring ------------------------------------------------------------
 const panel    = document.getElementById('controlPanel');
 const toggle   = document.getElementById('controlToggle');
 const closeBtn = document.getElementById('closePanelBtn');
 const showCrosshair = document.getElementById('showCrosshair');
 const showStocked   = document.getElementById('showStocked');
+const showAccess    = document.getElementById('showAccess');
+const showContours  = document.getElementById('showContours');
 const crosshairEl   = document.getElementById('crosshair');
-const showAccess = document.getElementById('showAccess');
 
-// Crosshair visibility (center reticle)
 function updateCrosshair() {
   if (!crosshairEl || !showCrosshair) return;
   crosshairEl.style.display = showCrosshair.checked ? 'block' : 'none';
 }
 updateCrosshair();
 showCrosshair?.addEventListener('change', updateCrosshair);
-
 
 function openPanel() {
   if (!panel || !toggle) return;
@@ -133,52 +122,36 @@ showTrails?.addEventListener('change', () => {
 });
 
 // --- Stocked Lakes (Fish_Stocking_Data.geojson) ------------------------------
-// Styling remains simple + readable on all basemaps
 const stockedStyle = { radius: 5, color: '#0a7', fillColor: 'rgba(170, 0, 68, 1)', fillOpacity: 0.9 };
 
-/** Utility: pretty-print keys and values for a popup */
 function titleCaseKey(k) {
-  return String(k)
-    .replace(/_/g, ' ')
-    .replace(/\b([a-z])/g, s => s.toUpperCase());
+  return String(k).replace(/_/g, ' ').replace(/\b([a-z])/g, s => s.toUpperCase());
 }
 function formatVal(v) {
   if (v == null) return '—';
   if (typeof v === 'number') return v.toLocaleString();
-  // Try ISO date detection (YYYY-MM-DD or full ISO)
   if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
     const d = new Date(v);
     if (!isNaN(+d)) return d.toLocaleDateString();
   }
   return String(v);
 }
-
-/** Build a rich popup from whatever fields exist */
 function stockedPopupContent(props) {
   const p = props || {};
-  // Try some common field names for a concise header block
-  //const waterbody = p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY || 'Stocked Lake';
   const waterbody = p.OFFICIAL_WATERBODY_NAME || p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY || 'Stocked Lake';
   const species   = p.SPECIES   || p.SPECIES_NAME || p.FISH_SPECIES || null;
   const year      = p.YEAR      || p.STOCK_YEAR   || null;
   const qty       = p.QUANTITY  || p.QTY          || p.NUM_STOCKED  || null;
 
-  // Header
   let html = `<div style="min-width:220px">
     <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>`;
-
-  // Quick facts row (only shows if present)
   const quick = [];
   if (species) quick.push(`<div><b>Species:</b> ${formatVal(species)}</div>`);
   if (year)    quick.push(`<div><b>Year:</b> ${formatVal(year)}</div>`);
   if (qty)     quick.push(`<div><b>Quantity:</b> ${formatVal(qty)}</div>`);
-  if (quick.length) {
-    html += `<div style="margin-bottom:8px">${quick.join('')}</div>`;
-  }
+  if (quick.length) html += `<div style="margin-bottom:8px">${quick.join('')}</div>`;
 
-  // Full property table (generic fallback so we never miss fields)
   const rows = Object.keys(p).sort().map(k => {
-    // Skip obviously duplicate fields we already surfaced
     if (['WATERBODY','LAKE_NAME','LAKE','WATER_BODY','SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'].includes(k)) return '';
     return `<tr><td style="padding:2px 6px 2px 0;white-space:nowrap;color:#335075">${titleCaseKey(k)}</td><td style="padding:2px 0">${formatVal(p[k])}</td></tr>`;
   }).join('');
@@ -191,39 +164,23 @@ function stockedPopupContent(props) {
   return html;
 }
 
-// --- Access Points (Fishing_Access_Point.geojson) ---------------------------
-// Visual style: small orange circle markers
+// Access Points ---------------------------------------------------------------
 const accessStyle = { radius: 5, color: '#b85', fillColor: '#f8a55e', fillOpacity: 0.95 };
-
-// Reuse titleCaseKey / formatVal helpers from Stocked Lakes
-
-/** Build a lightweight popup for Access Points */
 function accessPopupContent(p = {}) {
-  // Try common names if present, else fallbacks
-  const name =
-    p.NAME || p.SITE_NAME || p.ACCESS_POINT_NAME || p.LOCATION_NAME || 'Access Point';
-  const water =
-    p.WATERBODY || p.WATER_BODY || p.LAKE || p.OFFICIAL_WATERBODY_NAME || null;
-  const type =
-    p.TYPE || p.ACCESS_TYPE || p.FEATURE_TYPE || p.FACILITY_TYPE || null;
-  const launch =
-    p.LAUNCH_TYPE || p.BOAT_LAUNCH || p.RAMP_TYPE || null;
+  const name   = p.NAME || p.SITE_NAME || p.ACCESS_POINT_NAME || p.LOCATION_NAME || 'Access Point';
+  const water  = p.WATERBODY || p.WATER_BODY || p.LAKE || p.OFFICIAL_WATERBODY_NAME || null;
+  const type   = p.TYPE || p.ACCESS_TYPE || p.FEATURE_TYPE || p.FACILITY_TYPE || null;
+  const launch = p.LAUNCH_TYPE || p.BOAT_LAUNCH || p.RAMP_TYPE || null;
 
-  let html = `<div class="popup access-popup">
-     <h4 style="margin:0 0 .3rem 0;">${name}</h4>`;
-    
-  if (water) html += `<div><strong>Waterbody:</strong> ${formatVal(water)}</div>`;
-  if (type)  html += `<div><strong>Type:</strong> ${formatVal(type)}</div>`;
-  if (launch)html += `<div><strong>Launch:</strong> ${formatVal(launch)}</div>`;
+  let html = `<div class="popup access-popup"><h4 style="margin:0 0 .3rem 0;">${name}</h4>`;
+  if (water)  html += `<div><strong>Waterbody:</strong> ${formatVal(water)}</div>`;
+  if (type)   html += `<div><strong>Type:</strong> ${formatVal(type)}</div>`;
+  if (launch) html += `<div><strong>Launch:</strong> ${formatVal(launch)}</div>`;
 
-  // Add a compact table of the rest for transparency/debug
   const keys = Object.keys(p || {}).sort();
   if (keys.length) {
     html += `<details open style="margin-top:.4rem;"><summary>Details</summary><div style="max-height:160px;overflow:auto;"><table class="kv">`;
-
-    for (const k of keys) {
-      html += `<tr><th>${titleCaseKey(k)}</th><td>${formatVal(p[k])}</td></tr>`;
-    }
+    for (const k of keys) html += `<tr><th>${titleCaseKey(k)}</th><td>${formatVal(p[k])}</td></tr>`;
     html += `</table></div></details>`;
   }
   html += `</div>`;
@@ -253,53 +210,27 @@ async function ensureAccessLoaded() {
 
 async function toggleAccess() {
   if (!showAccess) return;
-  if (showAccess.checked) {
-    await ensureAccessLoaded();
-    accessLayer.addTo(map);
-  } else {
-    map.removeLayer(accessLayer);
-  }
+  if (showAccess.checked) { await ensureAccessLoaded(); accessLayer.addTo(map); }
+  else { map.removeLayer(accessLayer); }
 }
 showAccess?.addEventListener('change', toggleAccess);
-// initial state
-toggleAccess();
+toggleAccess(); // initial
 
-
-/* ========= On-click geocode & highlight (Ontario-bounded) ========= */
-
-// Ontario bbox (W,S,E,N)
+// ---- Stocked Lakes: geocode + highlight within 50 km -----------------------
 const ONTARIO_BBOX = [-95.16, 41.68, -74.34, 56.86];
-
-// Convert to Nominatim viewbox string (left,top,right,bottom)
-function nomViewboxFrom(bbox) {
-  const [W, S, E, N] = bbox;
-  return `${W},${N},${E},${S}`;
-}
+function nomViewboxFrom(bbox) { const [W,S,E,N]=bbox; return `${W},${N},${E},${S}`; }
 const NOM_VIEWBOX = nomViewboxFrom(ONTARIO_BBOX);
-
-// Simple in-memory cache: name -> candidate (or null)
-// Simple in-memory cache: (name + local area) -> candidate (or null)
 const geocodeCache = new Map();
 const normKey = s => String(s || '').trim().toLowerCase();
-
-// Build a cache key that includes a quantized hint location
 function nameCacheKey(name, hintLL) {
   if (!hintLL) return normKey(name);
-  // Quantize to ~100 m so nearby clicks reuse, far clicks do not
-  const latQ = (+hintLL.lat).toFixed(3);
-  const lngQ = (+hintLL.lng).toFixed(3);
-  return `${normKey(name)}@${latQ},${lngQ}`;
+  return `${normKey(name)}@${(+hintLL.lat).toFixed(3)},${(+hintLL.lng).toFixed(3)}`;
 }
-
-// Rough distance in meters (good enough for filtering to 50 km)
 function metersBetween(a, b) {
-  // Fast equirectangular-ish approximation for short ranges
   const dx = (a.lng - b.lng) * Math.cos((a.lat + b.lat) * Math.PI / 360);
   const dy = (a.lat - b.lat);
-  return Math.hypot(dx, dy) * 111_320; // meters per deg approx
+  return Math.hypot(dx, dy) * 111320;
 }
-
-// Prefer water features, add small proximity bonus to the clicked dot
 function scoreCandidate(c, hintLL) {
   const key = `${c.class}:${c.type}`;
   let score = 0;
@@ -308,65 +239,43 @@ function scoreCandidate(c, hintLL) {
   const dn = (c.display_name || '').toLowerCase();
   if (dn.includes('lake') || dn.includes('lac')) score += 1;
   if (hintLL) {
-    // very rough meters from lat/lng delta (good enough for tie-break)
     const d = Math.hypot(hintLL.lat - parseFloat(c.lat), hintLL.lng - parseFloat(c.lon)) * 111000;
     if (d < 500) score += 3;
     else if (d < 2000) score += 1;
   }
   return score;
 }
-
-// Geocode a lake name, optionally with a hint lat/lng to prioritize nearby results
 async function geocodeLake(name, hintLL) {
   const k = nameCacheKey(name, hintLL);
   if (geocodeCache.has(k)) return geocodeCache.get(k);
 
   const q = `${name}, Ontario, Canada`;
   const params = new URLSearchParams({
-    format: 'jsonv2',
-    q,
+    format: 'jsonv2', q,
     countrycodes: 'ca',
-    viewbox: NOM_VIEWBOX,
-    bounded: '1',
-    addressdetails: '0',
-    polygon_geojson: '1',
-    dedupe: '1',
-    limit: '12'
+    viewbox: NOM_VIEWBOX, bounded: '1',
+    addressdetails: '0', polygon_geojson: '1', dedupe: '1', limit: '12'
   });
 
   let arr = [];
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
-      headers: { 'Accept-Language': 'en-CA' },
-      referrerPolicy: 'no-referrer-when-downgrade'
+      headers: { 'Accept-Language': 'en-CA' }, referrerPolicy: 'no-referrer-when-downgrade'
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     arr = await res.json();
-  } catch (e) {
-    console.warn('Geocode error:', e);
-  }
+  } catch (e) { console.warn('Geocode error:', e); }
 
-  // If we have a hint location (the stocked lake pin), enforce a hard 50 km fence
   if (hintLL && Array.isArray(arr)) {
     const origin = { lat: +hintLL.lat, lng: +hintLL.lng };
-    arr = arr.filter(c => {
-      const cand = { lat: +c.lat, lng: +c.lon };
-      return metersBetween(origin, cand) <= 50_000; // 50 km
-    });
+    arr = arr.filter(c => metersBetween(origin, { lat: +c.lat, lng: +c.lon }) <= 50_000);
   }
-
-  if (!Array.isArray(arr) || arr.length === 0) {
-    geocodeCache.set(k, null);
-    return null;
-  }
+  if (!Array.isArray(arr) || arr.length === 0) { geocodeCache.set(k, null); return null; }
 
   const best = arr.map(c => ({
-    class: c.class,
-    type: c.type,
-    lat: parseFloat(c.lat),
-    lng: parseFloat(c.lon),
-    display_name: c.display_name,
-    geojson: c.geojson || null,
+    class: c.class, type: c.type,
+    lat: parseFloat(c.lat), lng: parseFloat(c.lon),
+    display_name: c.display_name, geojson: c.geojson || null,
     _score: scoreCandidate(c, hintLL || null)
   })).sort((a, b) => b._score - a._score)[0];
 
@@ -374,38 +283,24 @@ async function geocodeLake(name, hintLL) {
   return best || null;
 }
 
-
-
-// A small overlay for the highlight geometry
 const geocodeHighlight = L.featureGroup().addTo(map);
-
 function pulseLayer(layer, ms = 2000) {
-  const t0 = Date.now();
-  let on = false;
+  const t0 = Date.now(); let on = false;
   const base = (layer.setStyle ? { ...layer.options } : null);
   const iv = setInterval(() => {
     const t = Date.now() - t0;
-    if (t > ms) {
-      clearInterval(iv);
-      if (base && layer.setStyle) layer.setStyle(base);
-      return;
-    }
+    if (t > ms) { clearInterval(iv); if (base && layer.setStyle) layer.setStyle(base); return; }
     on = !on;
-    if (layer.setStyle) {
-      layer.setStyle(on ? { opacity: 1, weight: 5, color: '#00c7a9' }
-                        : { opacity: 0.5, weight: 3, color: '#00c7a9' });
-    } else if (layer.setRadius) {
-      layer.setRadius(on ? 9 : 6);
-    }
+    if (layer.setStyle) layer.setStyle(on ? { opacity: 1, weight: 5, color: '#00c7a9' } : { opacity: 0.5, weight: 3, color: '#00c7a9' });
+    else if (layer.setRadius) layer.setRadius(on ? 9 : 6);
   }, 220);
 }
-
 function showGeocodeHighlight(candidate) {
   geocodeHighlight.clearLayers();
   let hl;
   if (candidate?.geojson && (candidate.geojson.type === 'Polygon' || candidate.geojson.type === 'MultiPolygon')) {
     hl = L.geoJSON(candidate.geojson, { style: { color: '#00c7a9', weight: 3, fill: false, opacity: 0.8 } }).addTo(geocodeHighlight);
-    try { map.fitBounds(hl.getBounds(), { padding: [24, 24], maxZoom: 15 }); } catch (_) {}
+    try { map.fitBounds(hl.getBounds(), { padding: [24, 24], maxZoom: 15 }); } catch {}
   } else if (Number.isFinite(candidate?.lat) && Number.isFinite(candidate?.lng)) {
     hl = L.circleMarker([candidate.lat, candidate.lng], { radius: 8, color: '#00c7a9', fillColor: '#00c7a9', fillOpacity: 0.7 }).addTo(geocodeHighlight);
     map.setView([candidate.lat, candidate.lng], Math.max(map.getZoom(), 14));
@@ -413,106 +308,61 @@ function showGeocodeHighlight(candidate) {
   if (hl) pulseLayer(hl);
 }
 
-// Helper for robust waterbody name picking inside the feature
-function pickProp(obj, candidates) {
-  if (!obj) return null;
-  // Exact
-  for (const name of candidates) {
-    const v = obj[name];
-    if (v != null && String(v).trim() !== '') return String(v).trim();
-  }
-  // Case-insensitive & space/underscore-insensitive
-  const entries = Object.entries(obj);
-  const norm = s => String(s).replace(/[\s_]/g, '').toLowerCase();
-  for (const name of candidates) {
-    const target = norm(name);
-    const hit = entries.find(([k, v]) => v != null && String(v).trim() !== '' && norm(k) === target);
-    if (hit) return String(hit[1]).trim();
-  }
-  return null;
-}
-
-/* ========= end geocode helpers ========= */
-
 const stockedLayer = L.geoJSON(null, {
   pointToLayer: (feat, latlng) => L.circleMarker(latlng, stockedStyle),
-
   onEachFeature: (feat, layer) => {
     const p = feat.properties || {};
+    const pickProp = (obj, candidates) => {
+      if (!obj) return null;
+      for (const name of candidates) { const v = obj[name]; if (v != null && String(v).trim() !== '') return String(v).trim(); }
+      const entries = Object.entries(obj);
+      const norm = s => String(s).replace(/[\s_]/g, '').toLowerCase();
+      for (const name of candidates) {
+        const target = norm(name);
+        const hit = entries.find(([k, v]) => v != null && String(v).trim() !== '' && norm(k) === target);
+        if (hit) return String(hit[1]).trim();
+      }
+      return null;
+    };
 
-    // Preferred -> fallbacks
     const waterbody =
-      pickProp(p, [
-        'Official_Waterbody_Name',
-        'OFFICIAL_WATERBODY_NAME',
-        'Unoffcial_Waterbody_Name'
-      ]) ||
-      pickProp(p, ['WATERBODY', 'LAKE_NAME', 'LAKE', 'WATER_BODY']) ||
+      pickProp(p, ['Official_Waterbody_Name','OFFICIAL_WATERBODY_NAME','Unoffcial_Waterbody_Name']) ||
+      pickProp(p, ['WATERBODY','LAKE_NAME','LAKE','WATER_BODY']) ||
       'Unknown waterbody';
 
-    const species = pickProp(p, ['SPECIES', 'SPECIES_NAME', 'FISH_SPECIES']) || '—';
-    const year    = pickProp(p, ['YEAR', 'STOCK_YEAR']) || '—';
-    const qty     = pickProp(p, ['QUANTITY', 'QTY', 'NUM_STOCKED']) || '—';
+    const species = pickProp(p, ['SPECIES','SPECIES_NAME','FISH_SPECIES']) || '—';
+    const year    = pickProp(p, ['YEAR','STOCK_YEAR']) || '—';
+    const qty     = pickProp(p, ['QUANTITY','QTY','NUM_STOCKED']) || '—';
 
-    // Tooltip: Official Waterbody Name (robust)
     layer.bindTooltip(waterbody, { direction: 'top', offset: [0, -6] });
 
-    // Popup: header + quick facts + full table of remaining props
     const lat = feat.geometry?.coordinates?.[1]?.toFixed(5);
     const lng = feat.geometry?.coordinates?.[0]?.toFixed(5);
 
-    let html = `
-      <div style="min-width:220px">
-        <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>
-        <div><b>Species:</b> ${species}</div>
-        <div><b>Year:</b> ${year}</div>
-        <div><b>Quantity:</b> ${qty}</div>`;
+    let html = `<div style="min-width:220px">
+      <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>
+      <div><b>Species:</b> ${species}</div>
+      <div><b>Year:</b> ${year}</div>
+      <div><b>Quantity:</b> ${qty}</div>`;
+    if (lat && lng) html += `<div style="margin-top:6px"><b>Location:</b> ${lat}, ${lng}</div>`;
 
-    if (lat && lng) {
-      html += `<div style="margin-top:6px"><b>Location:</b> ${lat}, ${lng}</div>`;
-    }
-
-    const skip = new Set([
-      'Official_Waterbody_Name', 'OFFICIAL_WATERBODY_NAME', 'Unoffcial_Waterbody_Name',
-      'WATERBODY','LAKE_NAME','LAKE','WATER_BODY',
-      'SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'
-    ]);
-    const rows = Object.keys(p)
-      .filter(k => !skip.has(k))
-      .sort((a,b) => a.localeCompare(b))
-      .map(k => {
-        const v = p[k]; const val = (v == null || String(v).trim() === '') ? '—' : String(v);
-        return `<tr>
-          <td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${k.replace(/_/g,' ')}</td>
-          <td style="padding:2px 0">${val}</td>
-        </tr>`;
-      })
-      .join('');
-
-    if (rows) {
-      html += `<div style="margin-top:8px;max-height:160px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px">
-        <table style="font-size:12px;border-collapse:collapse">${rows}</table>
-      </div>`;
-    }
-
+    const skip = new Set(['Official_Waterbody_Name','OFFICIAL_WATERBODY_NAME','Unoffcial_Waterbody_Name',
+      'WATERBODY','LAKE_NAME','LAKE','WATER_BODY','SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED']);
+    const rows = Object.keys(p).filter(k => !skip.has(k)).sort((a,b)=>a.localeCompare(b))
+      .map(k => `<tr><td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${k.replace(/_/g,' ')}</td><td style="padding:2px 0">${String(p[k] ?? '—')}</td></tr>`).join('');
+    if (rows) html += `<div style="margin-top:8px;max-height:160px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px"><table style="font-size:12px;border-collapse:collapse">${rows}</table></div>`;
     html += `</div>`;
-
     layer.bindPopup(html);
 
-    // NEW: On click → geocode by name, cache, highlight polygon/point, zoom + pulse
     layer.on('click', async () => {
       const ll = layer.getLatLng ? layer.getLatLng() : null;
       const cand = await geocodeLake(waterbody, ll);
-      if (!cand) {
-        console.warn('No geocode match for', waterbody);
-        return;
-      }
+      if (!cand) { console.warn('No geocode match for', waterbody); return; }
       showGeocodeHighlight(cand);
     });
   }
 });
 
-// lazy-load once when the user enables the layer (or if pre-checked)
 let stockedLoaded = false;
 async function ensureStockedLoaded() {
   if (stockedLoaded) return;
@@ -526,20 +376,13 @@ async function ensureStockedLoaded() {
     console.warn('Failed to load Fish_Stocking_Data.geojson:', e);
   }
 }
-
 async function toggleStocked() {
   if (!showStocked) return;
-  if (showStocked.checked) {
-    await ensureStockedLoaded();
-    stockedLayer.addTo(map);
-  } else {
-    map.removeLayer(stockedLayer);
-  }
+  if (showStocked.checked) { await ensureStockedLoaded(); stockedLayer.addTo(map); }
+  else { map.removeLayer(stockedLayer); }
 }
 showStocked?.addEventListener('change', toggleStocked);
 toggleStocked();
-
-
 
 // --- Pins --------------------------------------------------------------------
 const pinsLayer       = L.layerGroup().addTo(map);
@@ -551,7 +394,6 @@ const exportPinsBtn   = document.getElementById('exportPinsBtn');
 const pinCount        = document.getElementById('pinCount');
 
 let pins = [];
-
 function refreshPins() {
   pinsLayer.clearLayers();
   pins.forEach(p => {
@@ -564,12 +406,7 @@ function refreshPins() {
 
 addPinBtn?.addEventListener('click', () => {
   const c = map.getCenter();
-  pins.push({
-    type:  pinType?.value || 'Other',
-    label: (pinLabel?.value || '').trim(),
-    lat:   c.lat,
-    lng:   c.lng
-  });
+  pins.push({ type: pinType?.value || 'Other', label: (pinLabel?.value || '').trim(), lat: c.lat, lng: c.lng });
   refreshPins();
 });
 
@@ -619,7 +456,6 @@ function ensureMarker() {
   if (!you) you = L.circleMarker([0,0], { radius: 6, color: '#ff00a8' }).addTo(map);
   return you;
 }
-
 function startLocate() {
   if (watching) return;
   if (!('geolocation' in navigator)) { alert('Geolocation not supported'); return; }
@@ -635,17 +471,13 @@ function startLocate() {
   );
   if (locateBtn) locateBtn.disabled = true;
 }
-
 function stopLocate() {
   if (!watching) return;
   navigator.geolocation.clearWatch(watchId);
   watching = false; watchId = null;
   if (locateBtn) locateBtn.disabled = false;
 }
-
-locateBtn?.addEventListener('click', () => {
-  if (!watching) startLocate();
-});
+locateBtn?.addEventListener('click', () => { if (!watching) startLocate(); });
 
 followBtn?.addEventListener('click', () => {
   follow = !follow;
@@ -673,7 +505,6 @@ function onTrackPoint(e){
   if (trackLine) map.removeLayer(trackLine);
   trackLine = L.polyline(track.map(p => [p.lat, p.lng]), { color: '#ff6b00', weight: 3 }).addTo(map);
 }
-
 trackStartBtn?.addEventListener('click', () => {
   track = [];
   if (!watching) startLocate();
@@ -682,14 +513,12 @@ trackStartBtn?.addEventListener('click', () => {
   if (trackStopBtn)  trackStopBtn.disabled  = false;
   if (trackSaveBtn)  trackSaveBtn.disabled  = true;
 });
-
 trackStopBtn?.addEventListener('click', () => {
   map.off('locationfound', onTrackPoint);
   if (trackStartBtn) trackStartBtn.disabled = false;
   if (trackStopBtn)  trackStopBtn.disabled  = true;
   if (trackSaveBtn)  trackSaveBtn.disabled  = track.length === 0;
 });
-
 trackSaveBtn?.addEventListener('click', () => {
   if (!track.length) return;
   const gpx = trackToGPX(track);
@@ -698,31 +527,22 @@ trackSaveBtn?.addEventListener('click', () => {
 
 // --- Helpers (GPX & download) -----------------------------------------------
 function esc(s){
-  return String(s).replace(/[&<>"']/g, m => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'
-  }[m]));
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[m]));
 }
-
 function trackToGPX(points){
-  const seg = points.map(p =>
-    `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><time>${p.time}</time></trkpt>`
-  ).join('');
+  const seg = points.map(p => `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><time>${p.time}</time></trkpt>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="OntarioTrails" xmlns="http://www.topografix.com/GPX/1/1">
  <trk><name>Recorded Track</name><trkseg>${seg}</trkseg></trk>
 </gpx>`;
 }
-
 function pinsToGPX(list){
-  const wpts = list.map(p =>
-    `<wpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><name>${esc(p.label||p.type)}</name><type>${esc(p.type)}</type></wpt>`
-  ).join('');
+  const wpts = list.map(p => `<wpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><name>${esc(p.label||p.type)}</name><type>${esc(p.type)}</type></wpt>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="OntarioTrails" xmlns="http://www.topografix.com/GPX/1/1">
  ${wpts}
 </gpx>`;
 }
-
 function parseGPXWaypoints(xml){
   const res = [];
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
@@ -735,7 +555,6 @@ function parseGPXWaypoints(xml){
   });
   return res;
 }
-
 function downloadText(filename, text, mime){
   const blob = new Blob([text], { type: mime || 'text/plain' });
   const url  = URL.createObjectURL(blob);
@@ -744,9 +563,223 @@ function downloadText(filename, text, mime){
   URL.revokeObjectURL(url);
 }
 
-// --- PWA OFF (keep disabled while developing) -------------------------------
-// if ('serviceWorker' in navigator) {
-//   window.addEventListener('load', () => {
-//     navigator.serviceWorker.register('./service-worker.js').catch(err => console.warn('SW reg failed:', err));
-//   });
-// }
+// ============================================================================
+// Contours integration (single checkbox: “Contours”)
+// Implements: zoom-gated load, color ramp styling, stable midpoint labels,
+// snap-to-nearest click showing “Elevation: X m”, and DEM fallback.
+// ============================================================================
+const CONTOUR_ZOOM_THRESHOLD = 11;
+const HOVER_ZOOM_THRESHOLD   = 11;
+const ELEV_DOMAIN_MIN = 0, ELEV_DOMAIN_MAX = 700, ELEV_DEFAULT_COLOR = '#666';
+const SNAP_TOLERANCE_PX = 20;
+
+const LIO_CONTOUR_URL = 'https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open01/MapServer/29';
+const DEM_URL         = 'https://ws.geoservices.lrc.gov.on.ca/arcgis5/rest/services/Elevation/Ontario_DEM_ImageryDerived/ImageServer';
+
+// Color ramp helpers
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function lerp(a,b,t){return a+(b-a)*t;}
+const stops=[{t:0.00,rgb:[44,127,184]},{t:0.20,rgb:[65,182,196]},{t:0.40,rgb:[127,205,187]},{t:0.50,rgb:[161,217,155]},{t:0.70,rgb:[253,174,97]},{t:0.85,rgb:[217,95,14]},{t:1.00,rgb:[140,81,10]}];
+function colorForElevation(m){
+  if(m==null||isNaN(m)) return ELEV_DEFAULT_COLOR;
+  const t=clamp((m-ELEV_DOMAIN_MIN)/(ELEV_DOMAIN_MAX-ELEV_DOMAIN_MIN),0,1);
+  for(let i=0;i<stops.length-1;i++){
+    const a=stops[i], b=stops[i+1];
+    if(t>=a.t && t<=b.t){
+      const lt=(t-a.t)/(b.t-a.t);
+      const r=Math.round(lerp(a.rgb[0],b.rgb[0],lt));
+      const g=Math.round(lerp(a.rgb[1],b.rgb[1],lt));
+      const bb=Math.round(lerp(a.rgb[2],b.rgb[2],lt));
+      return `rgb(${r},${g},${bb})`;
+    }
+  }
+  const last=stops[stops.length-1].rgb; return `rgb(${last[0]},${last[1]},${last[2]})`;
+}
+function getElevationValue(props){
+  if(!props) return null;
+  const keys = Object.keys(props);
+  const candidates = ['ELEVATION','ELEV','CONTOUR','CONTOUR_ELEV','Z','VALUE'];
+  for(const k of candidates){
+    if(k in props) return props[k];
+    const hit = keys.find(x=>x.toLowerCase()===k.toLowerCase());
+    if(hit) return props[hit];
+  }
+  return null;
+}
+
+// Layers
+const contoursLayer = L.esri.featureLayer({
+  url: LIO_CONTOUR_URL,
+  where: '1=1',
+  precision: 6,
+  simplifyFactor: 0.5,
+  style: (feature)=>{
+    const elev = Number(getElevationValue(feature?.properties));
+    return { color: colorForElevation(elev), weight: 1, opacity: 0.95 };
+  },
+  onEachFeature: (feature, layer)=>{
+    if (layer && layer instanceof L.Path) {
+      layer.options.interactive = false; // allow snap handler to own clicks
+      layer.off();
+    }
+  }
+});
+const contourLabels = L.layerGroup();
+const labelByLeafletId = new Map();
+const labelByObjectId  = new Map();
+function getObjectId(feature) {
+  const props = feature?.properties || {};
+  const idField = contoursLayer?.options?.idField || 'OBJECTID';
+  return feature?.id ?? props[idField] ?? props.OBJECTID ?? props.FID ?? null;
+}
+function addLabelFor(e) {
+  const feature = e?.feature, layer = e?.layer;
+  if (!feature || !feature.properties || !layer || !layer.getLatLngs) return;
+  const elevRaw = getElevationValue(feature.properties);
+  if (elevRaw == null || isNaN(+elevRaw)) return;
+  const latlngs = layer.getLatLngs();
+  const flat = Array.isArray(latlngs?.[0]) ? latlngs.flat(2) : latlngs;
+  if (!flat || flat.length < 2) return;
+  const a = flat[0], b = flat[flat.length - 1];
+  if (!a || !b || typeof map.distance !== 'function') return;
+  if (map.distance(a, b) < 120) return;
+  const mid = flat[Math.floor(flat.length / 2)];
+  const marker = L.marker(mid, {
+    icon: L.divIcon({ className:'contour-label', html: `${Math.round(+elevRaw)}`, iconSize:[0,0] }),
+    interactive: false
+  }).addTo(contourLabels);
+  if (layer._leaflet_id != null) labelByLeafletId.set(layer._leaflet_id, marker);
+  const oid = getObjectId(feature);
+  if (oid != null) labelByObjectId.set(oid, marker);
+}
+function removeLabelFor(e) {
+  let marker = null;
+  const layer = e?.layer;
+  if (layer && labelByLeafletId.has(layer._leaflet_id)) {
+    marker = labelByLeafletId.get(layer._leaflet_id);
+    labelByLeafletId.delete(layer._leaflet_id);
+  } else {
+    const oid = getObjectId(e?.feature);
+    if (oid != null && labelByObjectId.has(oid)) {
+      marker = labelByObjectId.get(oid);
+      labelByObjectId.delete(oid);
+    }
+  }
+  if (marker) contourLabels.removeLayer(marker);
+}
+contoursLayer.on('createfeature', addLabelFor);
+contoursLayer.on('removefeature', removeLabelFor);
+
+// Zoom gate
+function updateContourVisibility(){
+  const z = map.getZoom();
+  const want = (z >= CONTOUR_ZOOM_THRESHOLD) && showContours?.checked;
+  const on = map.hasLayer(contoursLayer);
+  if (want && !on){
+    contoursLayer.addTo(map);
+    contourLabels.addTo(map); // labels on by default
+    // attach snap handlers
+    map.on('click', onSnapClick);
+    map.on('mousemove', onHoverElev);
+  } else if ((!want) && on) {
+    map.removeLayer(contoursLayer);
+    map.removeLayer(contourLabels);
+    labelByLeafletId.clear(); labelByObjectId.clear();
+    // detach handlers
+    map.off('click', onSnapClick);
+    map.off('mousemove', onHoverElev);
+    elevTip.remove();
+  }
+}
+map.on('zoomend', updateContourVisibility);
+
+// DEM identify (fallback + hover)
+let demLayer;
+try{ demLayer = L.esri.imageMapLayer({ url: DEM_URL, opacity:0, pane:'tilePane' }); }
+catch(e){ console.warn('DEM image layer not available:', e); }
+const elevTip = L.tooltip({ permanent:false, direction:'top', offset:[0,-10], className:'elev-tooltip' });
+function fmtMeters(v){ if(v==null||isNaN(v)) return null; return Math.round(v); }
+function debounce(fn,wait){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args),wait); }; }
+const queryDEM = debounce(function(latlng){
+  if(!demLayer || !L.esri) return;
+  if(map.getZoom() < HOVER_ZOOM_THRESHOLD){ elevTip.remove(); return; }
+  try{
+    demLayer.identify().at(latlng).run((err,res)=>{
+      if(err){ elevTip.remove(); return; }
+      const m = fmtMeters(res?.value ?? res?.pixel?.value);
+      if(m==null){ elevTip.remove(); return; }
+      elevTip.setLatLng(latlng).setContent(
+        `<div style="padding:2px 6px;background:rgba(255,255,255,0.95);border:1px solid #ccc;border-radius:6px;font:12px system-ui;">${m} m</div>`
+      ).addTo(map);
+    });
+  }catch(e){ elevTip.remove(); }
+}, 200);
+
+// Snap-to-nearest contour (pixel space)
+function closestPointOnSegments(pixel, pixelPts) {
+  const { pointToSegmentDistance, closestPointOnSegment } = L.LineUtil;
+  let best = { dist: Infinity, pt: null, index: -1 };
+  for (let i = 0; i < pixelPts.length - 1; i++) {
+    const a = pixelPts[i], b = pixelPts[i+1];
+    const d = pointToSegmentDistance(pixel, a, b);
+    if (d < best.dist) {
+      best.dist = d;
+      best.pt = closestPointOnSegment ? closestPointOnSegment(pixel, a, b) : null;
+      best.index = i;
+    }
+  }
+  return best;
+}
+function flattenLatLngs(latlngs) {
+  if (!latlngs) return [];
+  return Array.isArray(latlngs[0]) ? latlngs.flat(2) : latlngs;
+}
+function findNearestContour(clickLatLng) {
+  if (!map.hasLayer(contoursLayer)) return null;
+  const clickPx = map.latLngToLayerPoint(clickLatLng);
+  let best = { distPx: Infinity, nearestLatLng: null, elev: null };
+
+  contoursLayer.eachFeature((layer) => {
+    if (!layer || !layer.getLatLngs) return;
+    if (layer.getBounds && !layer.getBounds().pad(0.2).contains(clickLatLng)) return;
+    const flat = flattenLatLngs(layer.getLatLngs());
+    if (!flat || flat.length < 2) return;
+    const pixels = flat.map(ll => map.latLngToLayerPoint(ll));
+    const nearest = closestPointOnSegments(clickPx, pixels);
+    if (!nearest || nearest.dist == null) return;
+    if (nearest.dist < best.distPx) {
+      best.distPx = nearest.dist;
+      const segA = pixels[nearest.index], segB = pixels[nearest.index+1];
+      const px = nearest.pt || new L.Point((segA.x+segB.x)/2, (segA.y+segB.y)/2);
+      best.nearestLatLng = map.layerPointToLatLng(px);
+      const elev = getElevationValue(layer.feature?.properties || {});
+      best.elev = (elev!=null && !isNaN(+elev)) ? Math.round(+elev) : null;
+    }
+  });
+
+  if (best.distPx <= SNAP_TOLERANCE_PX && best.elev != null) return best;
+  return null;
+}
+function onSnapClick(e){
+  if (map.hasLayer(contoursLayer)) {
+    const nearest = findNearestContour(e.latlng);
+    if (nearest) {
+      L.popup().setLatLng(nearest.nearestLatLng).setContent(`<b>Elevation:</b> ${nearest.elev} m`).openOn(map);
+      return;
+    }
+  }
+  // Fallback: DEM at click (only when contours enabled)
+  if (demLayer) {
+    demLayer.identify().at(e.latlng).run((err,res)=>{
+      const v = err ? null : (res?.value ?? res?.pixel?.value);
+      const m = (v==null||isNaN(v)) ? null : Math.round(+v);
+      if (m!=null) L.popup().setLatLng(e.latlng).setContent(`<b>Elevation:</b> ${m} m`).openOn(map);
+    });
+  }
+}
+function onHoverElev(e){
+  // lightweight hover elevation when contours are on
+  queryDEM(e.latlng);
+}
+showContours?.addEventListener('change', updateContourVisibility);
+updateContourVisibility(); // initial

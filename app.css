@@ -48,10 +48,11 @@ html, body { height: 100%; margin: 0; }
 .panel-section h3 { margin: 0 0 8px; font-size: 14px; color: var(--ink-2); }
 
 .filters { 
-    display: grid; 
-    gap: 6px; 
-    max-height: 160px; 
-    overflow: auto; }
+  display: grid; 
+  gap: 6px; 
+  max-height: 200px; 
+  overflow: auto; 
+}
 .filters label { display: flex; gap: 8px; align-items: center; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
@@ -86,90 +87,54 @@ html, body { height: 100%; margin: 0; }
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  pointer-events: none;       /* don't block map interactions */
-  z-index: 500;               /* above tiles, below panel (panel is 1099) */
-  width: 0; height: 0;        /* we draw with ::before/::after */
+  pointer-events: none;
+  z-index: 500;
+  width: 0; height: 0;
 }
 #crosshair::before,
 #crosshair::after {
   content: "";
   position: absolute;
-  background: #ff00a8;        /* matches your user location color vibe */
+  background: #ff00a8;
   opacity: 0.9;
   border-radius: 1px;
 }
-#crosshair::before {          /* horizontal bar */
-  width: 24px; height: 2px; left: -12px; top: -1px;
-}
-#crosshair::after {           /* vertical bar */
-  width: 2px; height: 24px; left: -1px; top: -12px;
-}
-/* Hide crosshair when zoomed out too far */
+#crosshair::before { width: 24px; height: 2px; left: -12px; top: -1px; }
+#crosshair::after  { width: 2px; height: 24px; left: -1px;  top: -12px; }
+
+/* Generic popup table */
 .popup .kv { border-collapse: collapse; width: 100%; font-size: 12px; }
 .popup .kv th { text-align: left; color: var(--muted, #666); padding-right: .5rem; white-space: nowrap; }
 .popup .kv td, .popup .kv th { padding: 2px 0; border: none; }
 
+/* Filters (uniform checkboxes) */
+#filters label { align-items: center; gap: 6px; font-size: 15px; line-height: 1.4; margin-bottom: 2px; }
+#filters input[type="checkbox"] { width: 18px; height: 18px; accent-color: #1472ff; cursor: pointer; }
 
-/* ==== Access Points Checkbox + Popup Consistency ==== */
-
-/* Make checkboxes and labels uniform size and spacing */
-#filters label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 15px;
-  line-height: 1.4;
-  margin-bottom: 4px;
-}
-
-#filters input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: #1472ff;
-  cursor: pointer;
-}
-
-/* Match Access Point popup to Stocked Lakes popup layout */
+/* Access popup look */
 .popup.access-popup {
   font-family: system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.4;
-  width: 320px;              /* same width as Stocked Lakes */
+  width: 320px;
   max-width: 320px;
 }
+.popup.access-popup h4 { margin: 0 0 0.4rem 0; font-size: 15px; color: #003366; }
+.popup.access-popup strong { color: #333; }
+.popup.access-popup details summary { cursor: pointer; color: #1472ff; margin-top: 0.4rem; }
+.popup.access-popup .kv { border-collapse: collapse; width: 100%; font-size: 12.5px; margin-top: 0.3rem; }
+.popup.access-popup .kv th { text-align: left; color: #666; padding-right: 0.4rem; white-space: nowrap; }
+.popup.access-popup .kv td, .popup.access-popup .kv th { padding: 2px 0; border: none; }
 
-.popup.access-popup h4 {
-  margin: 0 0 0.4rem 0;
-  font-size: 15px;
-  color: #003366;
-}
-
-.popup.access-popup strong {
+/* Contour midpoint labels */
+.contour-label {
+  background: rgba(255,255,255,0.9);
+  border: 1px solid #cfcfcf;
+  border-radius: 4px;
+  padding: 1px 3px;
+  font: 10px/1.1 system-ui, -apple-system, Segoe UI, Roboto, Arial;
   color: #333;
-}
-
-.popup.access-popup details summary {
-  cursor: pointer;
-  color: #1472ff;
-  margin-top: 0.4rem;
-}
-
-.popup.access-popup .kv {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 12.5px;
-  margin-top: 0.3rem;
-}
-
-.popup.access-popup .kv th {
-  text-align: left;
-  color: #666;
-  padding-right: 0.4rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   white-space: nowrap;
-}
-
-.popup.access-popup .kv td,
-.popup.access-popup .kv th {
-  padding: 2px 0;
-  border: none;
+  transform: translate(-50%, -50%);
 }
