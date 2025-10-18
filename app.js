@@ -129,6 +129,13 @@
   const crosshairEl   = document.getElementById('crosshair');
   const contourHintEl = document.getElementById('contourHint');
 
+  // Let the panel scroll/tap without panning/zooming the map underneath
+if (panel) {
+  L.DomEvent.disableClickPropagation(panel);
+  L.DomEvent.disableScrollPropagation(panel);
+}
+
+
   function updateCrosshair() {
     if (!crosshairEl || !showCrosshair) return;
     crosshairEl.style.display = showCrosshair.checked ? 'block' : 'none';

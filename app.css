@@ -156,3 +156,80 @@ html, body { height: 100%; margin: 0; }
   margin-top: 6px;
   color: #666;
 }
+
+/* --- Mobile UX hardening -------------------------------------------------- */
+
+/* Keep the control panel above Leaflet controls and tiles */
+.control-panel { 
+  z-index: 1200;               /* Leaflet controls are ~1000 */
+  /* Avoid the map stealing scroll inside the panel on iOS */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Make all form controls big enough to prevent iOS zoom-on-focus */
+.control-panel input,
+.control-panel select,
+.control-panel button,
+.control-panel label {
+  font-size: 16px;             /* >=16px prevents iOS auto-zoom */
+  line-height: 1.25;
+}
+
+/* Bigger checkboxes for fingers */
+.control-panel input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  vertical-align: middle;
+  accent-color: #1472ff;       /* nice native color on modern browsers */
+}
+.control-panel label { gap: .5rem; }
+
+/* Drawer behavior on small screens */
+@media (max-width: 768px) {
+  /* Toggle button: easier to hit */
+  .control-toggle {
+    left: 12px; top: 12px;
+    padding: 10px 12px;
+    font-size: 16px;
+    border-radius: 12px;
+  }
+
+  /* Panel becomes a fixed bottom drawer */
+  .control-panel {
+    position: fixed; 
+    left: 12px; 
+    right: 12px;
+    bottom: calc(env(safe-area-inset-bottom) + 12px);
+    top: auto;
+    max-height: 65vh;          /* scroller if long */
+    width: auto;               /* fill between left/right */
+    overflow: auto;
+    border-radius: 14px;       /* keep your var if you have one */
+    backdrop-filter: blur(6px);
+  }
+
+  /* Make section headers and row spacing a bit larger */
+  .control-panel h3 { font-size: 17px; margin: 10px 0 6px; }
+  .filters label { display: flex; align-items: center; padding: 6px 0; }
+  .row { gap: .5rem; }         /* if you have utility rows */
+}
+
+/* Keep geocoder and zoom controls tappable */
+.leaflet-control-container .leaflet-control {
+  font-size: 16px;
+}
+.leaflet-control-zoom a {      /* bigger zoom buttons */
+  width: 38px; height: 38px; line-height: 38px;
+}
+.leaflet-control-geocoder,
+.leaflet-control-geocoder .leaflet-control-geocoder-form input {
+  font-size: 16px;
+}
+
+/* Nudge Leaflet controls down a bit on phones so they don't sit under notches/status bars */
+@media (max-width: 768px) {
+  .leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top) + 10px); right: 10px; }
+}
+
+
