@@ -72,7 +72,11 @@ html, body { height: 100%; margin: 0; }
 .leaflet-container { touch-action: pan-x pan-y; }
 
 /* Small screens */
-@media (max-width: 480px) { .control-panel { width: 92vw; } }
+/* @media (max-width: 480px) { .control-panel { width: 92vw; } } */
+
+@media (max-width: 768px) {
+  .leaflet-top.leaflet-left { top: calc(env(safe-area-inset-top) + 60px); left: 10px; }
+}
 
 /* Center crosshair */
 #crosshair {
@@ -232,4 +236,39 @@ html, body { height: 100%; margin: 0; }
   .leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top) + 10px); right: 10px; }
 }
 
+/* Keep the page from moving when panel is open */
+body.panel-open {
+  overflow: hidden;         /* stop page scroll under the drawer */
+  touch-action: none;       /* stop pinch/drag from shifting the page */
+}
+
+/* Panel stays inside the visible viewport, even with mobile URL bar changes */
+@media (max-width: 768px) {
+  .control-panel {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    /* Prefer dynamic/large viewport units if supported */
+    max-height: 70dvh;               /* modern browsers */
+  }
+  @supports not (height: 100dvh) {
+    .control-panel { max-height: calc(var(--vh, 1vh) * 70); } /* JS fallback below */
+  }
+
+  /* Make the toggle a true floating action button that never leaves the screen */
+  .control-toggle {
+    position: fixed;
+    left: 12px;
+    top: max(12px, env(safe-area-inset-top));
+    z-index: 1400;
+    padding: 10px 12px;
+    font-size: 16px;
+    border-radius: 12px;
+  }
+}
+
+/* Make Leaflet controls a bit bigger & pinned safely */
+.leaflet-top.leaflet-right { top: max(10px, env(safe-area-inset-top)); right: 10px; }
+.leaflet-control-zoom a { width: 38px; height: 38px; line-height: 38px; font-size: 16px; }
 

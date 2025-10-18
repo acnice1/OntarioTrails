@@ -40,6 +40,14 @@
 
 
 
+// Mobile 100vh fix for older browsers (fallback for CSS var(--vh))
+function setVHVar() {
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
+setVHVar();
+window.addEventListener('resize', setVHVar);
+window.addEventListener('orientationchange', setVHVar);
 
 
   // --- Helper: safe JSON fetch with multiple candidate paths -------------------
@@ -166,6 +174,31 @@ if (panel) {
   showBaseCk?.addEventListener('change', () => {
     showBaseCk.checked ? base.addTo(map) : map.removeLayer(base);
   });
+
+
+// Let the panel scroll without the map/page moving underneath
+if (panel) {
+  L.DomEvent.disableClickPropagation(panel);
+  L.DomEvent.disableScrollPropagation(panel);
+}
+
+// Lock page scroll when panel is open so it can't slide off-screen
+function openPanel() {
+  if (!panel || !toggle) return;
+  panel.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+  toggle.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('panel-open');   // <-- lock page
+}
+
+function closePanel() {
+  if (!panel || !toggle) return;
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  toggle.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('panel-open'); // <-- unlock page
+}
+
 
   // --- Trails (OTN.geojson) ----------------------------------------------------
   const trailsStyle = { color: '#1472ff', weight: 3, opacity: 0.9 };
