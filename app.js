@@ -300,43 +300,65 @@ function closePanel() {
     }
     return score;
   }
+ 
+  
   async function geocodeLake(name, hintLL) {
-    const k = nameCacheKey(name, hintLL);
-    if (geocodeCache.has(k)) return geocodeCache.get(k);
+  // cache per (name + ~origin) to avoid cross-lake bleed
+  const key = `${String(name).trim().toLowerCase()}@@${
+    hintLL ? `${hintLL.lat.toFixed(4)},${hintLL.lng.toFixed(4)}` : 'none'
+  }`;
+  if (geocodeCache.has(key)) return geocodeCache.get(key);
 
-    const q = `${name}, Ontario, Canada`;
-    const params = new URLSearchParams({
-      format: 'jsonv2', q,
-      countrycodes: 'ca',
-      viewbox: NOM_VIEWBOX, bounded: '1',
-      addressdetails: '0', polygon_geojson: '1', dedupe: '1', limit: '12'
+  const q = `${name}, Ontario, Canada`;
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    q,
+    countrycodes: 'ca',
+    viewbox: NOM_VIEWBOX,
+    bounded: '1',
+    addressdetails: '0',
+    polygon_geojson: '1',
+    dedupe: '1',
+    limit: '12'
+  });
+
+  let arr = [];
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+      headers: { 'Accept-Language': 'en-CA' },
+      referrerPolicy: 'no-referrer-when-downgrade'
     });
-
-    let arr = [];
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
-        headers: { 'Accept-Language': 'en-CA' }, referrerPolicy: 'no-referrer-when-downgrade'
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      arr = await res.json();
-    } catch (e) { console.warn('Geocode error:', e); }
-
-    if (hintLL && Array.isArray(arr)) {
-      const origin = { lat: +hintLL.lat, lng: +hintLL.lng };
-      arr = arr.filter(c => metersBetween(origin, { lat: +c.lat, lng: +c.lon }) <= 50_000);
-    }
-    if (!Array.isArray(arr) || arr.length === 0) { geocodeCache.set(k, null); return null; }
-
-    const best = arr.map(c => ({
-      class: c.class, type: c.type,
-      lat: parseFloat(c.lat), lng: parseFloat(c.lon),
-      display_name: c.display_name, geojson: c.geojson || null,
-      _score: scoreCandidate(c, hintLL || null)
-    })).sort((a, b) => b._score - a._score)[0];
-
-    geocodeCache.set(k, best || null);
-    return best || null;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    arr = await res.json();
+  } catch (e) {
+    console.warn('Geocode error:', e);
   }
+
+  // Enforce the 50 km rule strictly
+  if (hintLL && Array.isArray(arr)) {
+    arr = arr.filter(c => metersBetween(
+      hintLL, { lat: +c.lat, lng: +c.lon }
+    ) <= 50_000);
+  }
+  if (!arr || arr.length === 0) { geocodeCache.set(key, null); return null; }
+
+  // Choose the closest (after filtering), keep bbox for fallback highlight
+  const best = arr.map(c => ({
+    class: c.class,
+    type: c.type,
+    lat: parseFloat(c.lat),
+    lng: parseFloat(c.lon),
+    display_name: c.display_name,
+    geojson: c.geojson || null,
+    bbox: Array.isArray(c.boundingbox) ? c.boundingbox.map(Number) : null,
+    _d: hintLL ? metersBetween(hintLL, { lat: +c.lat, lng: +c.lon }) : Infinity
+  })).sort((a,b) => a._d - b._d)[0];
+
+  geocodeCache.set(key, best || null);
+  return best || null;
+}
+
+
 
   const geocodeHighlight = L.featureGroup().addTo(map);
   function pulseLayer(layer, ms = 2000) {
@@ -350,18 +372,37 @@ function closePanel() {
       else if (layer.setRadius) layer.setRadius(on ? 9 : 6);
     }, 220);
   }
+
   function showGeocodeHighlight(candidate) {
-    geocodeHighlight.clearLayers();
-    let hl;
-    if (candidate?.geojson && (candidate.geojson.type === 'Polygon' || candidate.geojson.type === 'MultiPolygon')) {
-      hl = L.geoJSON(candidate.geojson, { style: { color: '#00c7a9', weight: 3, fill: false, opacity: 0.8 } }).addTo(geocodeHighlight);
-      try { map.fitBounds(hl.getBounds(), { padding: [24, 24], maxZoom: 15 }); } catch {}
-    } else if (Number.isFinite(candidate?.lat) && Number.isFinite(candidate?.lng)) {
-      hl = L.circleMarker([candidate.lat, candidate.lng], { radius: 8, color: '#00c7a9', fillColor: '#00c7a9', fillOpacity: 0.7 }).addTo(geocodeHighlight);
-      map.setView([candidate.lat, candidate.lng], Math.max(map.getZoom(), 14));
-    }
-    if (hl) pulseLayer(hl);
+  geocodeHighlight.clearLayers();
+  if (!candidate) return;
+
+  let hl;
+
+  // Prefer polygon highlight
+  if (candidate.geojson && (candidate.geojson.type === 'Polygon' || candidate.geojson.type === 'MultiPolygon')) {
+    hl = L.geoJSON(candidate.geojson, { style: { color: '#00c7a9', weight: 3, fill: false, opacity: 0.8 } })
+      .addTo(geocodeHighlight);
+    try { map.fitBounds(hl.getBounds(), { padding: [24,24], maxZoom: 15 }); } catch(_) {}
   }
+  // Then bbox highlight (Nominatim order: [south, north, west, east])
+  else if (Array.isArray(candidate.bbox) && candidate.bbox.length === 4) {
+    const [south, north, west, east] = candidate.bbox;
+    const bounds = L.latLngBounds([south, west], [north, east]);
+    hl = L.rectangle(bounds, { color: '#00c7a9', weight: 2, fill: false, opacity: 0.9 })
+      .addTo(geocodeHighlight);
+    map.fitBounds(bounds, { padding: [24,24], maxZoom: 15 });
+  }
+  // Finally a point fallback
+  else if (Number.isFinite(candidate.lat) && Number.isFinite(candidate.lng)) {
+    hl = L.circleMarker([candidate.lat, candidate.lng], { radius: 8, color: '#00c7a9', fillColor: '#00c7a9', fillOpacity: 0.7 })
+      .addTo(geocodeHighlight);
+    map.setView([candidate.lat, candidate.lng], Math.max(map.getZoom(), 14));
+  }
+
+  if (hl) pulseLayer(hl);
+}
+
 
   const stockedStyle = { radius: 5, color: '#0a7', fillColor: 'rgba(170, 0, 68, 1)', fillOpacity: 0.9 };
   const stockedLayer = L.geoJSON(null, {
@@ -370,9 +411,16 @@ function closePanel() {
       const p = feat.properties || {};
       const titleCaseKey = k => String(k).replace(/_/g, ' ').replace(/\b([a-z])/g, s => s.toUpperCase());
       const formatVal = v => (v == null ? '—' : (typeof v === 'number' ? v.toLocaleString() : String(v)));
-      const waterbody =
-        p.OFFICIAL_WATERBODY_NAME || p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY || 'Stocked Lake';
-      const species = p.SPECIES || p.SPECIES_NAME || p.FISH_SPECIES || null;
+  
+     const waterbody =
+  p.Official_Waterbody_Name ||
+  p.OFFICIAL_WATERBODY_NAME ||
+  p.Official_French_Waterbody_Name ||
+  p.Unoffcial_Waterbody_Name ||
+  p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY ||
+  'Stocked Lake';
+  
+  const species = p.SPECIES || p.SPECIES_NAME || p.FISH_SPECIES || null;
       const year    = p.YEAR || p.STOCK_YEAR || null;
       const qty     = p.QUANTITY || p.QTY || p.NUM_STOCKED || null;
 
@@ -384,7 +432,15 @@ function closePanel() {
       if (year)    html += `<div><b>Year:</b> ${formatVal(year)}</div>`;
       if (qty)     html += `<div><b>Quantity:</b> ${formatVal(qty)}</div>`;
 
-      const skip = new Set(['OFFICIAL_WATERBODY_NAME','WATERBODY','LAKE_NAME','LAKE','WATER_BODY','SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED']);
+      const skip = new Set([
+     'Official_Waterbody_Name',
+      'OFFICIAL_WATERBODY_NAME',
+      'Unoffcial_Waterbody_Name', 
+    'WATERBODY','LAKE_NAME','LAKE','WATER_BODY',
+    'SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'
+  ]);
+
+    
       const rows = Object.keys(p).filter(k => !skip.has(k)).sort()
         .map(k => `<tr><td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${titleCaseKey(k)}</td><td style="padding:2px 0">${formatVal(p[k])}</td></tr>`).join('');
       if (rows) html += `<div style="max-height:180px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px"><table style="font-size:12px;border-collapse:collapse">${rows}</table></div>`;
@@ -393,12 +449,17 @@ function closePanel() {
       layer.bindPopup(html);
 
       // On click: geocode waterbody within 50 km and highlight nearest
-      layer.on('click', async () => {
-        const ll = layer.getLatLng ? layer.getLatLng() : null;
-        const cand = await geocodeLake(waterbody, ll);
-        if (!cand) { console.warn('No geocode match within 50 km for', waterbody); return; }
-        showGeocodeHighlight(cand);
-      });
+      // On click → geocode by name, cache (per location), highlight polygon/bbox/point, zoom + pulse
+layer.on('click', async () => {
+  const origin = originLatLng(layer, feat);  // <- uses helper to get true lat/lon
+  const cand = await geocodeLake(waterbody, origin);
+  if (!cand) {
+    console.warn('No geocode match within 50 km for', waterbody);
+    return;
+  }
+  showGeocodeHighlight(cand);
+});
+
     }
   });
   let stockedLoaded = false;
@@ -648,6 +709,33 @@ function closePanel() {
     if (maxEl) maxEl.textContent = ELEV_DOMAIN_MAX;
     if (midEl) midEl.textContent = Math.round((ELEV_DOMAIN_MIN + ELEV_DOMAIN_MAX) / 2);
   })();
+
+
+  // Haversine — meters between two lat/lngs
+function metersBetween(a, b) {
+  if (!a || !b) return Infinity;
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s1 = Math.sin(dLat/2), s2 = Math.sin(dLng/2);
+  const q = s1*s1 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * s2*s2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(q)));
+}
+
+// Robust origin (layer first, then GeoJSON coords)
+function originLatLng(layer, feature) {
+  if (layer?.getLatLng) {
+    const ll = layer.getLatLng();
+    return { lat: ll.lat, lng: ll.lng };
+  }
+  const g = feature?.geometry;
+  if (g?.type === 'Point' && Array.isArray(g.coordinates) && g.coordinates.length >= 2) {
+    return { lat: +g.coordinates[1], lng: +g.coordinates[0] };
+  }
+  return null;
+}
+
 
   // Color ramp helpers
   function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
