@@ -13,8 +13,18 @@ const map = L.map('map', { zoomControl: false }).setView([45.4215, -75.6972], 11
 L.control.zoom({ position: 'topright' }).addTo(map);
 
 const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '&copy; OpenStreetMap'
+  maxZoom: 23, attribution: '&copy; OpenStreetMap'
 }).addTo(map);
+
+// Ontario Imagery WMTS (toggleable)
+const imagery = L.tileLayer(
+  'https://ws.lioservices.lrc.gov.on.ca/arcgis1071a/rest/services/LIO_Imagery/Ontario_Imagery_Web_Map_Service/MapServer/tile/{z}/{y}/{x}',
+  {
+    maxZoom: 23,
+    attribution: 'Imagery © Ontario LIO'
+  }
+);
+
 
 // --- Helper: safe JSON fetch with multiple candidate paths -------------------
 async function fetchFirstJSON(candidates, opts = {}) {
@@ -76,7 +86,7 @@ if (window.L?.Control?.Geocoder) {
   })
   .on('markgeocode', (e) => {
     const g = e.geocode;
-    if (g && g.bbox) map.fitBounds(g.bbox, { maxZoom: 15 });
+    if (g && g.bbox) map.fitBounds(g.bbox, { maxZoom: 23 });
     else if (g?.center) map.setView(g.center, 15);
     if (g?.center) L.marker(g.center).addTo(map).bindPopup(g.name || 'Location').openPopup();
   })
@@ -97,6 +107,8 @@ const showCrosshair = document.getElementById('showCrosshair');
 const showStocked   = document.getElementById('showStocked');
 const showAccess    = document.getElementById('showAccess');
 const showContours  = document.getElementById('showContours');
+const showImagery = document.getElementById('showImagery');
+
 
 const crosshairEl   = document.getElementById('crosshair');
 const contourHintEl = document.getElementById('contourHint');
@@ -148,9 +160,16 @@ const trailsLayer = L.geoJSON(null, { style: trailsStyle });
   }
 })();
 
+// --- Trails toggle -----------------------------------------------------------
 showTrails?.addEventListener('change', () => {
   showTrails.checked ? trailsLayer.addTo(map) : map.removeLayer(trailsLayer);
 });
+
+// --- Imagery toggle ----------------------------------------------------------
+showImagery?.addEventListener('change', () => {
+  showImagery.checked ? imagery.addTo(map) : map.removeLayer(imagery);
+});
+
 
 // --- Stocked Lakes (Fish_Stocking_Data.geojson) ------------------------------
 // Geocoding + highlight within 50 km of stocking pin
