@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-search@4.0.0/dist/leaflet-search.min.css" />
 
-  <!-- App CSS (your styles) -->
+  <!-- App CSS -->
   <link rel="stylesheet" href="./app.css" />
 </head>
 <body>
@@ -23,7 +23,7 @@
   <!-- Toggle button -->
   <button id="controlToggle" class="control-toggle" aria-expanded="true" title="Open panel">☰ Controls</button>
 
-  <!-- Slide-in panel (start open so you can verify; JS can toggle it) -->
+  <!-- Controls panel -->
   <aside id="controlPanel" class="control-panel open" aria-hidden="false">
     <div class="panel-header">
       <h2>Map Controls</h2>
@@ -83,19 +83,33 @@
 
     <section class="panel-section">
       <h3>Legend</h3>
+
+      <!-- Existing legend items -->
       <div class="legend-items">
         <div><span class="legend-line legend-base"></span>Base</div>
         <div><span class="legend-line legend-trail"></span>Trails (OTN)</div>
         <div><span class="legend-dot"></span>Your location</div>
       </div>
+
+      <!-- New contour color legend (like example) -->
+      <div class="contour-legend">
+        <div class="contour-legend-title">Elevation (m)</div>
+        <div class="contour-ramp" aria-hidden="true"></div>
+        <div class="contour-ticks">
+          <span id="elevMinTick">0</span>
+          <span id="elevMidTick">350</span>
+          <span id="elevMaxTick">700</span>
+        </div>
+        <div class="contour-note" id="contourHint">Zoom to <b>11+</b> to load contours</div>
+        <div class="contour-credits">Basemap © OpenStreetMap • Data © Ontario LIO</div>
+      </div>
     </section>
   </aside>
 
-  <!-- Vendor JS (defer so DOM is ready for your app.js) -->
+  <!-- Vendor JS -->
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script defer src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
   <script defer src="https://unpkg.com/leaflet-search@4.0.0/dist/leaflet-search.min.js"></script>
-  <!-- Esri Leaflet for contours & DEM identify -->
   <script defer src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
 
   <!-- App JS -->

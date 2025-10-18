@@ -1,18 +1,41 @@
 // ==============================
-// Ontario Trails — app.js (with Contours toggle)
+// Ontario Trails — app.js
+// - Robust local data loading
+// - Ontario/Quebec-bounded geocoder
+// - Trails / Stocked Lakes (50 km match) / Access Points
+// - Pins, Locate/Follow, Track Recorder
+// - Contours: zoom-gated, midpoint labels, snap-to-nearest click, DEM hover/click fallback
+// - Legend: contour gradient + ticks + zoom hint
 // ==============================
 
 // --- Map & Basemap -----------------------------------------------------------
 const map = L.map('map', { zoomControl: false }).setView([45.4215, -75.6972], 11);
-
-// Move the zoom control to the upper right
 L.control.zoom({ position: 'topright' }).addTo(map);
 
-// OpenStreetMap Standard tiles
 const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap'
+  maxZoom: 19, attribution: '&copy; OpenStreetMap'
 }).addTo(map);
+
+// --- Helper: safe JSON fetch with multiple candidate paths -------------------
+async function fetchFirstJSON(candidates, opts = {}) {
+  const tried = [];
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { cache: 'no-store', ...opts });
+      if (!res.ok) { tried.push(`${url} [${res.status}]`); continue; }
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('application/json') && !ct.includes('application/geo+json')) {
+        const text = await res.text();
+        try { return JSON.parse(text); } catch { tried.push(`${url} [non-JSON]`); continue; }
+      }
+      return await res.json();
+    } catch (e) {
+      tried.push(`${url} [${e?.message || 'fetch error'}]`);
+    }
+  }
+  const msg = `All candidate paths failed:\n- ${tried.join('\n- ')}`;
+  throw new Error(msg);
+}
 
 // --- Base-map search (Ontario/Quebec bounded) -------------------------------
 if (window.L?.Control?.Geocoder) {
@@ -66,11 +89,17 @@ if (window.L?.Control?.Geocoder) {
 const panel    = document.getElementById('controlPanel');
 const toggle   = document.getElementById('controlToggle');
 const closeBtn = document.getElementById('closePanelBtn');
+
+const showBaseCk    = document.getElementById('showBase');
+const showTrails    = document.getElementById('showTrails');
+const showPinsCk    = document.getElementById('showPins');
 const showCrosshair = document.getElementById('showCrosshair');
 const showStocked   = document.getElementById('showStocked');
 const showAccess    = document.getElementById('showAccess');
 const showContours  = document.getElementById('showContours');
+
 const crosshairEl   = document.getElementById('crosshair');
+const contourHintEl = document.getElementById('contourHint');
 
 function updateCrosshair() {
   if (!crosshairEl || !showCrosshair) return;
@@ -96,130 +125,37 @@ toggle?.addEventListener('click', () =>
 );
 closeBtn?.addEventListener('click', closePanel);
 
-// --- Layer toggles -----------------------------------------------------------
-const showBase   = document.getElementById('showBase');
-const showTrails = document.getElementById('showTrails');
-const showPinsCk = document.getElementById('showPins');
-
-showBase?.addEventListener('change', () => {
-  showBase.checked ? base.addTo(map) : map.removeLayer(base);
+showBaseCk?.addEventListener('change', () => {
+  showBaseCk.checked ? base.addTo(map) : map.removeLayer(base);
 });
 
 // --- Trails (OTN.geojson) ----------------------------------------------------
 const trailsStyle = { color: '#1472ff', weight: 3, opacity: 0.9 };
 const trailsLayer = L.geoJSON(null, { style: trailsStyle });
 
-fetch('./OTN.geojson')
-  .then(r => r.json())
-  .then(geo => {
-    trailsLayer.addData(geo);
+(async function loadTrails() {
+  try {
+    const data = await fetchFirstJSON([
+      './OTN.geojson',
+      './data/OTN.geojson',
+      '/OTN.geojson',
+      '/data/OTN.geojson'
+    ]);
+    trailsLayer.addData(data);
     if (showTrails?.checked) trailsLayer.addTo(map);
-  })
-  .catch(err => console.warn('Failed to load OTN.geojson:', err));
+  } catch (err) {
+    console.warn('Trails not loaded (OTN.geojson).', err.message);
+  }
+})();
 
 showTrails?.addEventListener('change', () => {
   showTrails.checked ? trailsLayer.addTo(map) : map.removeLayer(trailsLayer);
 });
 
 // --- Stocked Lakes (Fish_Stocking_Data.geojson) ------------------------------
-const stockedStyle = { radius: 5, color: '#0a7', fillColor: 'rgba(170, 0, 68, 1)', fillOpacity: 0.9 };
-
-function titleCaseKey(k) {
-  return String(k).replace(/_/g, ' ').replace(/\b([a-z])/g, s => s.toUpperCase());
-}
-function formatVal(v) {
-  if (v == null) return '—';
-  if (typeof v === 'number') return v.toLocaleString();
-  if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
-    const d = new Date(v);
-    if (!isNaN(+d)) return d.toLocaleDateString();
-  }
-  return String(v);
-}
-function stockedPopupContent(props) {
-  const p = props || {};
-  const waterbody = p.OFFICIAL_WATERBODY_NAME || p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY || 'Stocked Lake';
-  const species   = p.SPECIES   || p.SPECIES_NAME || p.FISH_SPECIES || null;
-  const year      = p.YEAR      || p.STOCK_YEAR   || null;
-  const qty       = p.QUANTITY  || p.QTY          || p.NUM_STOCKED  || null;
-
-  let html = `<div style="min-width:220px">
-    <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>`;
-  const quick = [];
-  if (species) quick.push(`<div><b>Species:</b> ${formatVal(species)}</div>`);
-  if (year)    quick.push(`<div><b>Year:</b> ${formatVal(year)}</div>`);
-  if (qty)     quick.push(`<div><b>Quantity:</b> ${formatVal(qty)}</div>`);
-  if (quick.length) html += `<div style="margin-bottom:8px">${quick.join('')}</div>`;
-
-  const rows = Object.keys(p).sort().map(k => {
-    if (['WATERBODY','LAKE_NAME','LAKE','WATER_BODY','SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED'].includes(k)) return '';
-    return `<tr><td style="padding:2px 6px 2px 0;white-space:nowrap;color:#335075">${titleCaseKey(k)}</td><td style="padding:2px 0">${formatVal(p[k])}</td></tr>`;
-  }).join('');
-  if (rows.trim()) {
-    html += `<div style="max-height:180px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px">
-      <table style="font-size:12px;border-collapse:collapse">${rows}</table>
-    </div>`;
-  }
-  html += `</div>`;
-  return html;
-}
-
-// Access Points ---------------------------------------------------------------
-const accessStyle = { radius: 5, color: '#b85', fillColor: '#f8a55e', fillOpacity: 0.95 };
-function accessPopupContent(p = {}) {
-  const name   = p.NAME || p.SITE_NAME || p.ACCESS_POINT_NAME || p.LOCATION_NAME || 'Access Point';
-  const water  = p.WATERBODY || p.WATER_BODY || p.LAKE || p.OFFICIAL_WATERBODY_NAME || null;
-  const type   = p.TYPE || p.ACCESS_TYPE || p.FEATURE_TYPE || p.FACILITY_TYPE || null;
-  const launch = p.LAUNCH_TYPE || p.BOAT_LAUNCH || p.RAMP_TYPE || null;
-
-  let html = `<div class="popup access-popup"><h4 style="margin:0 0 .3rem 0;">${name}</h4>`;
-  if (water)  html += `<div><strong>Waterbody:</strong> ${formatVal(water)}</div>`;
-  if (type)   html += `<div><strong>Type:</strong> ${formatVal(type)}</div>`;
-  if (launch) html += `<div><strong>Launch:</strong> ${formatVal(launch)}</div>`;
-
-  const keys = Object.keys(p || {}).sort();
-  if (keys.length) {
-    html += `<details open style="margin-top:.4rem;"><summary>Details</summary><div style="max-height:160px;overflow:auto;"><table class="kv">`;
-    for (const k of keys) html += `<tr><th>${titleCaseKey(k)}</th><td>${formatVal(p[k])}</td></tr>`;
-    html += `</table></div></details>`;
-  }
-  html += `</div>`;
-  return html;
-}
-
-const accessLayer = L.geoJSON(null, {
-  pointToLayer: (feat, latlng) => L.circleMarker(latlng, accessStyle),
-  onEachFeature: (feat, layer) => {
-    layer.bindPopup(accessPopupContent(feat.properties || {}), { maxWidth: 340 });
-  }
-});
-let accessLoaded = false;
-
-async function ensureAccessLoaded() {
-  if (accessLoaded) return;
-  try {
-    const r = await fetch('./Fishing_Access_Point.geojson');
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const gj = await r.json();
-    accessLayer.addData(gj);
-    accessLoaded = true;
-  } catch (e) {
-    console.warn('Failed to load Fishing_Access_Point.geojson:', e);
-  }
-}
-
-async function toggleAccess() {
-  if (!showAccess) return;
-  if (showAccess.checked) { await ensureAccessLoaded(); accessLayer.addTo(map); }
-  else { map.removeLayer(accessLayer); }
-}
-showAccess?.addEventListener('change', toggleAccess);
-toggleAccess(); // initial
-
-// ---- Stocked Lakes: geocode + highlight within 50 km -----------------------
+// Geocoding + highlight within 50 km of stocking pin
 const ONTARIO_BBOX = [-95.16, 41.68, -74.34, 56.86];
-function nomViewboxFrom(bbox) { const [W,S,E,N]=bbox; return `${W},${N},${E},${S}`; }
-const NOM_VIEWBOX = nomViewboxFrom(ONTARIO_BBOX);
+const NOM_VIEWBOX = `${ONTARIO_BBOX[0]},${ONTARIO_BBOX[3]},${ONTARIO_BBOX[2]},${ONTARIO_BBOX[1]}`; // W,N,E,S
 const geocodeCache = new Map();
 const normKey = s => String(s || '').trim().toLowerCase();
 function nameCacheKey(name, hintLL) {
@@ -291,7 +227,7 @@ function pulseLayer(layer, ms = 2000) {
     const t = Date.now() - t0;
     if (t > ms) { clearInterval(iv); if (base && layer.setStyle) layer.setStyle(base); return; }
     on = !on;
-    if (layer.setStyle) layer.setStyle(on ? { opacity: 1, weight: 5, color: '#00c7a9' } : { opacity: 0.5, weight: 3, color: '#00c7a9' });
+    if (layer.setStyle) layer.setStyle(on ? { opacity: 1, weight: 5, color: '#00c7a9' } : { opacity: 0.6, weight: 3, color: '#00c7a9' });
     else if (layer.setRadius) layer.setRadius(on ? 9 : 6);
   }, 220);
 }
@@ -308,81 +244,119 @@ function showGeocodeHighlight(candidate) {
   if (hl) pulseLayer(hl);
 }
 
+const stockedStyle = { radius: 5, color: '#0a7', fillColor: 'rgba(170, 0, 68, 1)', fillOpacity: 0.9 };
 const stockedLayer = L.geoJSON(null, {
   pointToLayer: (feat, latlng) => L.circleMarker(latlng, stockedStyle),
   onEachFeature: (feat, layer) => {
     const p = feat.properties || {};
-    const pickProp = (obj, candidates) => {
-      if (!obj) return null;
-      for (const name of candidates) { const v = obj[name]; if (v != null && String(v).trim() !== '') return String(v).trim(); }
-      const entries = Object.entries(obj);
-      const norm = s => String(s).replace(/[\s_]/g, '').toLowerCase();
-      for (const name of candidates) {
-        const target = norm(name);
-        const hit = entries.find(([k, v]) => v != null && String(v).trim() !== '' && norm(k) === target);
-        if (hit) return String(hit[1]).trim();
-      }
-      return null;
-    };
-
+    const titleCaseKey = k => String(k).replace(/_/g, ' ').replace(/\b([a-z])/g, s => s.toUpperCase());
+    const formatVal = v => (v == null ? '—' : (typeof v === 'number' ? v.toLocaleString() : String(v)));
     const waterbody =
-      pickProp(p, ['Official_Waterbody_Name','OFFICIAL_WATERBODY_NAME','Unoffcial_Waterbody_Name']) ||
-      pickProp(p, ['WATERBODY','LAKE_NAME','LAKE','WATER_BODY']) ||
-      'Unknown waterbody';
-
-    const species = pickProp(p, ['SPECIES','SPECIES_NAME','FISH_SPECIES']) || '—';
-    const year    = pickProp(p, ['YEAR','STOCK_YEAR']) || '—';
-    const qty     = pickProp(p, ['QUANTITY','QTY','NUM_STOCKED']) || '—';
+      p.OFFICIAL_WATERBODY_NAME || p.WATERBODY || p.LAKE_NAME || p.LAKE || p.WATER_BODY || 'Stocked Lake';
+    const species = p.SPECIES || p.SPECIES_NAME || p.FISH_SPECIES || null;
+    const year    = p.YEAR || p.STOCK_YEAR || null;
+    const qty     = p.QUANTITY || p.QTY || p.NUM_STOCKED || null;
 
     layer.bindTooltip(waterbody, { direction: 'top', offset: [0, -6] });
 
-    const lat = feat.geometry?.coordinates?.[1]?.toFixed(5);
-    const lng = feat.geometry?.coordinates?.[0]?.toFixed(5);
-
     let html = `<div style="min-width:220px">
-      <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>
-      <div><b>Species:</b> ${species}</div>
-      <div><b>Year:</b> ${year}</div>
-      <div><b>Quantity:</b> ${qty}</div>`;
-    if (lat && lng) html += `<div style="margin-top:6px"><b>Location:</b> ${lat}, ${lng}</div>`;
+      <div style="font-weight:700;margin-bottom:6px">${waterbody}</div>`;
+    if (species) html += `<div><b>Species:</b> ${formatVal(species)}</div>`;
+    if (year)    html += `<div><b>Year:</b> ${formatVal(year)}</div>`;
+    if (qty)     html += `<div><b>Quantity:</b> ${formatVal(qty)}</div>`;
 
-    const skip = new Set(['Official_Waterbody_Name','OFFICIAL_WATERBODY_NAME','Unoffcial_Waterbody_Name',
-      'WATERBODY','LAKE_NAME','LAKE','WATER_BODY','SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED']);
-    const rows = Object.keys(p).filter(k => !skip.has(k)).sort((a,b)=>a.localeCompare(b))
-      .map(k => `<tr><td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${k.replace(/_/g,' ')}</td><td style="padding:2px 0">${String(p[k] ?? '—')}</td></tr>`).join('');
-    if (rows) html += `<div style="margin-top:8px;max-height:160px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px"><table style="font-size:12px;border-collapse:collapse">${rows}</table></div>`;
+    const skip = new Set(['OFFICIAL_WATERBODY_NAME','WATERBODY','LAKE_NAME','LAKE','WATER_BODY','SPECIES','SPECIES_NAME','FISH_SPECIES','YEAR','STOCK_YEAR','QUANTITY','QTY','NUM_STOCKED']);
+    const rows = Object.keys(p).filter(k => !skip.has(k)).sort()
+      .map(k => `<tr><td style="padding:2px 6px 2px 0;color:#335075;white-space:nowrap">${titleCaseKey(k)}</td><td style="padding:2px 0">${formatVal(p[k])}</td></tr>`).join('');
+    if (rows) html += `<div style="max-height:180px;overflow:auto;border-top:1px solid #e8edf3;padding-top:6px"><table style="font-size:12px;border-collapse:collapse">${rows}</table></div>`;
+
     html += `</div>`;
     layer.bindPopup(html);
 
+    // On click: geocode waterbody within 50 km and highlight nearest
     layer.on('click', async () => {
       const ll = layer.getLatLng ? layer.getLatLng() : null;
       const cand = await geocodeLake(waterbody, ll);
-      if (!cand) { console.warn('No geocode match for', waterbody); return; }
+      if (!cand) { console.warn('No geocode match within 50 km for', waterbody); return; }
       showGeocodeHighlight(cand);
     });
   }
 });
-
 let stockedLoaded = false;
 async function ensureStockedLoaded() {
   if (stockedLoaded) return;
   try {
-    const r = await fetch('./Fish_Stocking_Data.geojson');
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const gj = await r.json();
+    const gj = await fetchFirstJSON([
+      './Fish_Stocking_Data.geojson',
+      './data/Fish_Stocking_Data.geojson',
+      '/Fish_Stocking_Data.geojson',
+      '/data/Fish_Stocking_Data.geojson'
+    ]);
     stockedLayer.addData(gj);
     stockedLoaded = true;
   } catch (e) {
-    console.warn('Failed to load Fish_Stocking_Data.geojson:', e);
+    console.warn('Stocked lakes not loaded (Fish_Stocking_Data.geojson).', e.message);
   }
 }
 async function toggleStocked() {
   if (!showStocked) return;
-  if (showStocked.checked) { await ensureStockedLoaded(); stockedLayer.addTo(map); }
+  if (showStocked.checked) { await ensureStockedLoaded(); if (stockedLoaded) stockedLayer.addTo(map); else showStocked.checked = false; }
   else { map.removeLayer(stockedLayer); }
 }
 showStocked?.addEventListener('change', toggleStocked);
-toggleStocked();
+
+// --- Access Points (Fishing_Access_Point.geojson) ----------------------------
+const accessStyle = { radius: 5, color: '#b85', fillColor: '#f8a55e', fillOpacity: 0.95 };
+function accessPopupContent(p = {}) {
+  const titleCaseKey = k => String(k).replace(/_/g, ' ').replace(/\b([a-z])/g, s => s.toUpperCase());
+  const formatVal = v => (v == null ? '—' : (typeof v === 'number' ? v.toLocaleString() : String(v)));
+  const name   = p.NAME || p.SITE_NAME || p.ACCESS_POINT_NAME || p.LOCATION_NAME || 'Access Point';
+  const water  = p.WATERBODY || p.WATER_BODY || p.LAKE || p.OFFICIAL_WATERBODY_NAME || null;
+  const type   = p.TYPE || p.ACCESS_TYPE || p.FEATURE_TYPE || p.FACILITY_TYPE || null;
+  const launch = p.LAUNCH_TYPE || p.BOAT_LAUNCH || p.RAMP_TYPE || null;
+
+  let html = `<div class="popup access-popup"><h4>${name}</h4>`;
+  if (water)  html += `<div><strong>Waterbody:</strong> ${formatVal(water)}</div>`;
+  if (type)   html += `<div><strong>Type:</strong> ${formatVal(type)}</div>`;
+  if (launch) html += `<div><strong>Launch:</strong> ${formatVal(launch)}</div>`;
+
+  const keys = Object.keys(p || {}).sort();
+  if (keys.length) {
+    html += `<details open><summary>Details</summary><div style="max-height:160px;overflow:auto;"><table class="kv">`;
+    for (const k of keys) html += `<tr><th>${titleCaseKey(k)}</th><td>${formatVal(p[k])}</td></tr>`;
+    html += `</table></div></details>`;
+  }
+  html += `</div>`;
+  return html;
+}
+const accessLayer = L.geoJSON(null, {
+  pointToLayer: (feat, latlng) => L.circleMarker(latlng, accessStyle),
+  onEachFeature: (feat, layer) => {
+    layer.bindPopup(accessPopupContent(feat.properties || {}), { maxWidth: 340 });
+  }
+});
+let accessLoaded = false;
+async function ensureAccessLoaded() {
+  if (accessLoaded) return;
+  try {
+    const gj = await fetchFirstJSON([
+      './Fishing_Access_Point.geojson',
+      './data/Fishing_Access_Point.geojson',
+      '/Fishing_Access_Point.geojson',
+      '/data/Fishing_Access_Point.geojson'
+    ]);
+    accessLayer.addData(gj);
+    accessLoaded = true;
+  } catch (e) {
+    console.warn('Access points not loaded (Fishing_Access_Point.geojson).', e.message);
+  }
+}
+async function toggleAccess() {
+  if (!showAccess) return;
+  if (showAccess.checked) { await ensureAccessLoaded(); if (accessLoaded) accessLayer.addTo(map); else showAccess.checked = false; }
+  else { map.removeLayer(accessLayer); }
+}
+showAccess?.addEventListener('change', toggleAccess);
 
 // --- Pins --------------------------------------------------------------------
 const pinsLayer       = L.layerGroup().addTo(map);
@@ -403,19 +377,20 @@ function refreshPins() {
   });
   if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
 }
-
 addPinBtn?.addEventListener('click', () => {
   const c = map.getCenter();
   pins.push({ type: pinType?.value || 'Other', label: (pinLabel?.value || '').trim(), lat: c.lat, lng: c.lng });
   refreshPins();
 });
-
 exportPinsBtn?.addEventListener('click', () => {
   if (!pins.length) return;
-  const gpx = pinsToGPX(pins);
+  const wpts = pins.map(p => `<wpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><name>${esc(p.label||p.type)}</name><type>${esc(p.type)}</type></wpt>`).join('');
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="OntarioTrails" xmlns="http://www.topografix.com/GPX/1/1">
+ ${wpts}
+</gpx>`;
   downloadText('pins.gpx', gpx, 'application/gpx+xml');
 });
-
 importPinsInput?.addEventListener('change', async (e) => {
   const file = e.target.files?.[0]; if (!file) return;
   const text = await file.text();
@@ -438,111 +413,8 @@ importPinsInput?.addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-showPinsCk?.addEventListener('change', () => {
-  showPinsCk.checked ? pinsLayer.addTo(map) : map.removeLayer(pinsLayer);
-});
-
-// --- Locate / Follow / Reset -------------------------------------------------
-const locateBtn    = document.getElementById('locateBtn');
-const followBtn    = document.getElementById('followBtn');
-const resetViewBtn = document.getElementById('resetViewBtn');
-
-let watching = false;
-let watchId  = null;
-let follow   = false;
-let you      = null;
-
-function ensureMarker() {
-  if (!you) you = L.circleMarker([0,0], { radius: 6, color: '#ff00a8' }).addTo(map);
-  return you;
-}
-function startLocate() {
-  if (watching) return;
-  if (!('geolocation' in navigator)) { alert('Geolocation not supported'); return; }
-  watching = true;
-  watchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      const { latitude, longitude } = pos.coords;
-      ensureMarker().setLatLng([latitude, longitude]);
-      if (follow) map.setView([latitude, longitude]);
-    },
-    (err) => console.warn('Geolocation error:', err),
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-  );
-  if (locateBtn) locateBtn.disabled = true;
-}
-function stopLocate() {
-  if (!watching) return;
-  navigator.geolocation.clearWatch(watchId);
-  watching = false; watchId = null;
-  if (locateBtn) locateBtn.disabled = false;
-}
-locateBtn?.addEventListener('click', () => { if (!watching) startLocate(); });
-
-followBtn?.addEventListener('click', () => {
-  follow = !follow;
-  if (followBtn) followBtn.textContent = follow ? '▶️ Follow: On' : '▶️ Follow: Off';
-  if (follow && you) map.setView(you.getLatLng());
-});
-
-const HOME = { center: [45.4215, -75.6972], zoom: 11 };
-resetViewBtn?.addEventListener('click', () => {
-  follow = false;
-  if (followBtn) followBtn.textContent = '▶️ Follow: Off';
-  map.setView(HOME.center, HOME.zoom);
-});
-
-// --- Track recorder ----------------------------------------------------------
-let track = [];
-let trackLine = null;
-
-const trackStartBtn = document.getElementById('trackStartBtn');
-const trackStopBtn  = document.getElementById('trackStopBtn');
-const trackSaveBtn  = document.getElementById('trackSaveBtn');
-
-function onTrackPoint(e){
-  track.push({ lat: e.latlng.lat, lng: e.latlng.lng, time: new Date().toISOString() });
-  if (trackLine) map.removeLayer(trackLine);
-  trackLine = L.polyline(track.map(p => [p.lat, p.lng]), { color: '#ff6b00', weight: 3 }).addTo(map);
-}
-trackStartBtn?.addEventListener('click', () => {
-  track = [];
-  if (!watching) startLocate();
-  map.on('locationfound', onTrackPoint);
-  if (trackStartBtn) trackStartBtn.disabled = true;
-  if (trackStopBtn)  trackStopBtn.disabled  = false;
-  if (trackSaveBtn)  trackSaveBtn.disabled  = true;
-});
-trackStopBtn?.addEventListener('click', () => {
-  map.off('locationfound', onTrackPoint);
-  if (trackStartBtn) trackStartBtn.disabled = false;
-  if (trackStopBtn)  trackStopBtn.disabled  = true;
-  if (trackSaveBtn)  trackSaveBtn.disabled  = track.length === 0;
-});
-trackSaveBtn?.addEventListener('click', () => {
-  if (!track.length) return;
-  const gpx = trackToGPX(track);
-  downloadText('track.gpx', gpx, 'application/gpx+xml');
-});
-
-// --- Helpers (GPX & download) -----------------------------------------------
-function esc(s){
-  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[m]));
-}
-function trackToGPX(points){
-  const seg = points.map(p => `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><time>${p.time}</time></trkpt>`).join('');
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="OntarioTrails" xmlns="http://www.topografix.com/GPX/1/1">
- <trk><name>Recorded Track</name><trkseg>${seg}</trkseg></trk>
-</gpx>`;
-}
-function pinsToGPX(list){
-  const wpts = list.map(p => `<wpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><name>${esc(p.label||p.type)}</name><type>${esc(p.type)}</type></wpt>`).join('');
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="OntarioTrails" xmlns="http://www.topografix.com/GPX/1/1">
- ${wpts}
-</gpx>`;
-}
+// Pins helpers
+function esc(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[m])); }
 function parseGPXWaypoints(xml){
   const res = [];
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
@@ -563,10 +435,47 @@ function downloadText(filename, text, mime){
   URL.revokeObjectURL(url);
 }
 
+// --- Locate / Follow / Reset -------------------------------------------------
+const locateBtn    = document.getElementById('locateBtn');
+const followBtn    = document.getElementById('followBtn');
+const resetViewBtn = document.getElementById('resetViewBtn');
+let watching = false, watchId = null, follow = false, you = null;
+
+function ensureMarker() {
+  if (!you) you = L.circleMarker([0,0], { radius: 6, color: '#ff00a8' }).addTo(map);
+  return you;
+}
+function startLocate() {
+  if (watching) return;
+  if (!('geolocation' in navigator)) { alert('Geolocation not supported'); return; }
+  watching = true;
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      ensureMarker().setLatLng([latitude, longitude]);
+      if (follow) map.setView([latitude, longitude]);
+    },
+    (err) => console.warn('Geolocation error:', err),
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+  if (locateBtn) locateBtn.disabled = true;
+}
+locateBtn?.addEventListener('click', () => { if (!watching) startLocate(); });
+
+followBtn?.addEventListener('click', () => {
+  follow = !follow;
+  if (followBtn) followBtn.textContent = follow ? '▶️ Follow: On' : '▶️ Follow: Off';
+  if (follow && you) map.setView(you.getLatLng());
+});
+const HOME = { center: [45.4215, -75.6972], zoom: 11 };
+resetViewBtn?.addEventListener('click', () => {
+  follow = false;
+  if (followBtn) followBtn.textContent = '▶️ Follow: Off';
+  map.setView(HOME.center, HOME.zoom);
+});
+
 // ============================================================================
-// Contours integration (single checkbox: “Contours”)
-// Implements: zoom-gated load, color ramp styling, stable midpoint labels,
-// snap-to-nearest click showing “Elevation: X m”, and DEM fallback.
+// Contours integration (zoom-gated, labels, snap click, DEM) + Legend sync
 // ============================================================================
 const CONTOUR_ZOOM_THRESHOLD = 11;
 const HOVER_ZOOM_THRESHOLD   = 11;
@@ -575,6 +484,16 @@ const SNAP_TOLERANCE_PX = 20;
 
 const LIO_CONTOUR_URL = 'https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open01/MapServer/29';
 const DEM_URL         = 'https://ws.geoservices.lrc.gov.on.ca/arcgis5/rest/services/Elevation/Ontario_DEM_ImageryDerived/ImageServer';
+
+// Legend ticks
+(function syncContourLegendTicks(){
+  const minEl = document.getElementById('elevMinTick');
+  const midEl = document.getElementById('elevMidTick');
+  const maxEl = document.getElementById('elevMaxTick');
+  if (minEl) minEl.textContent = ELEV_DOMAIN_MIN;
+  if (maxEl) maxEl.textContent = ELEV_DOMAIN_MAX;
+  if (midEl) midEl.textContent = Math.round((ELEV_DOMAIN_MIN + ELEV_DOMAIN_MAX) / 2);
+})();
 
 // Color ramp helpers
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
@@ -642,7 +561,7 @@ function addLabelFor(e) {
   if (!flat || flat.length < 2) return;
   const a = flat[0], b = flat[flat.length - 1];
   if (!a || !b || typeof map.distance !== 'function') return;
-  if (map.distance(a, b) < 120) return;
+  if (map.distance(a, b) < 120) return; // reduce clutter
   const mid = flat[Math.floor(flat.length / 2)];
   const marker = L.marker(mid, {
     icon: L.divIcon({ className:'contour-label', html: `${Math.round(+elevRaw)}`, iconSize:[0,0] }),
@@ -670,30 +589,41 @@ function removeLabelFor(e) {
 contoursLayer.on('createfeature', addLabelFor);
 contoursLayer.on('removefeature', removeLabelFor);
 
-// Zoom gate
+// Zoom hint + visibility
+function updateContourHint() {
+  if (!contourHintEl) return;
+  const z = map.getZoom();
+  if (!showContours?.checked) {
+    contourHintEl.innerHTML = `Enable <b>Contours</b> to view elevation lines`;
+    return;
+  }
+  contourHintEl.innerHTML = (z >= CONTOUR_ZOOM_THRESHOLD)
+    ? `Contours loaded (zoom ${z}).`
+    : `Zoom to <b>${CONTOUR_ZOOM_THRESHOLD}+</b> to load contours`;
+}
 function updateContourVisibility(){
   const z = map.getZoom();
   const want = (z >= CONTOUR_ZOOM_THRESHOLD) && showContours?.checked;
   const on = map.hasLayer(contoursLayer);
   if (want && !on){
     contoursLayer.addTo(map);
-    contourLabels.addTo(map); // labels on by default
-    // attach snap handlers
+    contourLabels.addTo(map);
     map.on('click', onSnapClick);
     map.on('mousemove', onHoverElev);
   } else if ((!want) && on) {
     map.removeLayer(contoursLayer);
     map.removeLayer(contourLabels);
     labelByLeafletId.clear(); labelByObjectId.clear();
-    // detach handlers
     map.off('click', onSnapClick);
     map.off('mousemove', onHoverElev);
     elevTip.remove();
   }
+  updateContourHint();
 }
 map.on('zoomend', updateContourVisibility);
+showContours?.addEventListener('change', updateContourVisibility);
 
-// DEM identify (fallback + hover)
+// DEM identify for hover/click fallback
 let demLayer;
 try{ demLayer = L.esri.imageMapLayer({ url: DEM_URL, opacity:0, pane:'tilePane' }); }
 catch(e){ console.warn('DEM image layer not available:', e); }
@@ -715,7 +645,7 @@ const queryDEM = debounce(function(latlng){
   }catch(e){ elevTip.remove(); }
 }, 200);
 
-// Snap-to-nearest contour (pixel space)
+// Snap-to-nearest contour
 function closestPointOnSegments(pixel, pixelPts) {
   const { pointToSegmentDistance, closestPointOnSegment } = L.LineUtil;
   let best = { dist: Infinity, pt: null, index: -1 };
@@ -730,10 +660,7 @@ function closestPointOnSegments(pixel, pixelPts) {
   }
   return best;
 }
-function flattenLatLngs(latlngs) {
-  if (!latlngs) return [];
-  return Array.isArray(latlngs[0]) ? latlngs.flat(2) : latlngs;
-}
+function flattenLatLngs(latlngs) { return (!latlngs) ? [] : (Array.isArray(latlngs[0]) ? latlngs.flat(2) : latlngs); }
 function findNearestContour(clickLatLng) {
   if (!map.hasLayer(contoursLayer)) return null;
   const clickPx = map.latLngToLayerPoint(clickLatLng);
@@ -768,7 +695,6 @@ function onSnapClick(e){
       return;
     }
   }
-  // Fallback: DEM at click (only when contours enabled)
   if (demLayer) {
     demLayer.identify().at(e.latlng).run((err,res)=>{
       const v = err ? null : (res?.value ?? res?.pixel?.value);
@@ -777,9 +703,11 @@ function onSnapClick(e){
     });
   }
 }
-function onHoverElev(e){
-  // lightweight hover elevation when contours are on
-  queryDEM(e.latlng);
-}
-showContours?.addEventListener('change', updateContourVisibility);
+function onHoverElev(e){ queryDEM(e.latlng); }
+
 updateContourVisibility(); // initial
+toggleAccess();           // initial
+toggleStocked();          // initial
+showPinsCk?.addEventListener('change', () => {
+  showPinsCk.checked ? pinsLayer.addTo(map) : map.removeLayer(pinsLayer);
+});
