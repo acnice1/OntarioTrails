@@ -272,3 +272,16 @@ body.panel-open {
 .leaflet-top.leaflet-right { top: max(10px, env(safe-area-inset-top)); right: 10px; }
 .leaflet-control-zoom a { width: 38px; height: 38px; line-height: 38px; font-size: 16px; }
 
+/* Make CLUPA fills interact nicely with imagery underneath */
+.leaflet-pane.clupaPane {
+  mix-blend-mode: multiply;   /* improves contrast over light imagery */
+}
+
+/* CLUPA labels with a halo for readability */
+.clupa-label {
+  font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #1b1f23;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 6px #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}

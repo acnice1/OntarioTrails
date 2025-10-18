@@ -27,6 +27,11 @@
   }).addTo(map);
 
 
+  // Pane to keep CLUPA visible above imagery/contours
+  map.createPane('clupaPane');
+  map.getPane('clupaPane').style.zIndex = 360; // imagery was 300
+
+
   // Ontario Imagery WMTS (toggleable)
   const imagery = L.tileLayer(
     'https://ws.lioservices.lrc.gov.on.ca/arcgis1071a/rest/services/LIO_Imagery/Ontario_Imagery_Web_Map_Service/MapServer/tile/{z}/{y}/{x}',
@@ -538,6 +543,83 @@ layer.on('click', async () => {
   }
   showAccess?.addEventListener('change', toggleAccess);
 
+  // ---- CLUPA (Crown Land Use Policy Atlas) -----------------------------------
+// Single MapServer hosting multiple layers; we’ll request just the ones we need.
+const CLUPA_SERVICE_URL = 'https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open06/MapServer';
+
+// Rendered server-side for performance; nice over imagery + contours
+const clupaProv = L.esri.dynamicMapLayer({
+  url: CLUPA_SERVICE_URL,
+  layers: [5],          // CLUPA Provincial
+  opacity: 0.55
+});
+
+const clupaOverlay = L.esri.dynamicMapLayer({
+  url: CLUPA_SERVICE_URL,
+  layers: [4],          // CLUPA Overlay
+  opacity: 0.65
+});
+
+// Toggles
+const showCLUPAProv   = document.getElementById('showCLUPAProv');
+const showCLUPAOverlay= document.getElementById('showCLUPAOverlay');
+
+showCLUPAProv?.addEventListener('change', () => {
+  if (showCLUPAProv.checked) {
+    clupaProv.addTo(map);
+    clupaProvOutline.addTo(map);
+    clupaLabels.addTo(map);
+  } else {
+    map.removeLayer(clupaProv);
+    map.removeLayer(clupaProvOutline);
+    // Only remove labels if both layers are off
+    if (!showCLUPAOverlay?.checked) map.removeLayer(clupaLabels);
+  }
+});
+
+showCLUPAOverlay?.addEventListener('change', () => {
+  if (showCLUPAOverlay.checked) {
+    clupaOverlay.addTo(map);
+    clupaOverlayOutline.addTo(map);
+    clupaLabels.addTo(map);
+  } else {
+    map.removeLayer(clupaOverlay);
+    map.removeLayer(clupaOverlayOutline);
+    if (!showCLUPAProv?.checked) map.removeLayer(clupaLabels);
+  }
+});
+
+
+// Identify-on-click (only when one/both CLUPA toggles are on)
+map.on('click', (e) => {
+  const active = [];
+  if (showCLUPAProv?.checked) active.push(5);
+  if (showCLUPAOverlay?.checked) active.push(4);
+  if (!active.length) return;
+
+  L.esri.identifyFeatures({ url: CLUPA_SERVICE_URL })
+    .on(map)
+    .at(e.latlng)
+    .layers(`visible:${active.join(',')}`)
+    .tolerance(8)
+    .returnGeometry(false)
+    .run((err, fc) => {
+      if (err || !fc?.features?.length) return;
+      const f = fc.features[0];
+      const p = f.properties || {};
+      // Pull the most helpful fields if present; fall back gracefully.
+      const name = p.NAME_ENG || p.NAME_FR || p.DESIGNATION_ENG || 'Area';
+      const policy = p.POLICY_IDENT ? `<div><b>Policy ID:</b> ${p.POLICY_IDENT}</div>` : '';
+      const des   = p.DESIGNATION_ENG ? `<div><b>Designation:</b> ${p.DESIGNATION_ENG}</div>` : '';
+      const cat   = p.CATEGORY_ENG ? `<div><b>Category:</b> ${p.CATEGORY_ENG}</div>` : '';
+      L.popup()
+        .setLatLng(e.latlng)
+        .setContent(`<div style="min-width:220px"><div style="font-weight:700;margin-bottom:6px">${name}</div>${des}${cat}${policy}</div>`)
+        .openOn(map);
+    });
+});
+
+
 
   // Auto-detect true max zoom from ArcGIS MapServer capabilities
   (async function autoSetImageryMaxZoom() {
@@ -571,6 +653,52 @@ layer.on('click', async () => {
       console.warn('Could not auto-detect imagery max zoom:', err);
     }
   })();
+
+
+  // Lightweight outline layers for clarity
+const clupaProvOutline = L.esri.featureLayer({
+  url: `${CLUPA_SERVICE_URL}/5`,
+  pane: 'clupaPane',
+  fields: ['OBJECTID','NAME_ENG','NAME_FR'],
+  precision: 5,
+  simplifyFactor: 0.7,
+  style: { color: '#ff2d55', weight: 2, fillOpacity: 0, opacity: 1 }
+});
+
+const clupaOverlayOutline = L.esri.featureLayer({
+  url: `${CLUPA_SERVICE_URL}/4`,
+  pane: 'clupaPane',
+  fields: ['OBJECTID','NAME_ENG','NAME_FR','DESIGNATION_ENG'],
+  precision: 5,
+  simplifyFactor: 0.7,
+  style: { color: '#1472ff', weight: 2, fillOpacity: 0, opacity: 1, dashArray: '6,4' }
+});
+
+// Small, non-interactive labels at polygon centers
+const clupaLabels = L.layerGroup({ pane: 'clupaPane' });
+
+function addClupaLabel(e) {
+  const lyr = e.layer;
+  if (!lyr || !lyr.getBounds) return;
+  const center = lyr.getBounds().getCenter();
+  const p = lyr.feature?.properties || {};
+  const name = p.NAME_ENG || p.NAME_FR || p.DESIGNATION_ENG || '';
+  if (!name) return;
+  L.marker(center, {
+    icon: L.divIcon({ className: 'clupa-label', html: name, iconSize: [0,0] }),
+    interactive: false
+  }).addTo(clupaLabels);
+}
+function removeClupaLabel(e) {
+  // prune labels within the removed feature’s bounds
+  const b = e.layer?.getBounds?.(); if (!b) return;
+  clupaLabels.eachLayer(l => { if (b.contains(l.getLatLng())) clupaLabels.removeLayer(l); });
+}
+clupaProvOutline.on('createfeature', addClupaLabel);
+clupaProvOutline.on('removefeature', removeClupaLabel);
+clupaOverlayOutline.on('createfeature', addClupaLabel);
+clupaOverlayOutline.on('removefeature', removeClupaLabel);
+
 
 
   // --- Pins --------------------------------------------------------------------
