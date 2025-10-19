@@ -5,8 +5,14 @@
   <title>Ontario Trails — GPS Web Map</title>
 
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="format-detection" content="telephone=no">
+  <meta name="format-detection" content="telephone=no">
 
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1472ff">
+  <link rel="icon" sizes="192x192" href="icons/icon-192.png">
+  <link rel="icon" sizes="512x512" href="icons/icon-512.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
 
   <!-- Vendor CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -33,93 +39,135 @@
       <button id="closePanelBtn" class="icon-btn" title="Close">✕</button>
     </div>
 
-    <section class="panel-section">
-      <h3>Filters</h3>
-      <div class="filters" id="filters">
+    <!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" data-tab="tab-map">
+    <span class="ico" aria-hidden="true">
+      <!-- map icon -->
+      <svg viewBox="0 0 24 24" fill="none"><path d="M9 5l6 2 6-2v14l-6 2-6-2-6 2V7l6-2z" stroke="currentColor" stroke-width="1.6"/></svg>
+    </span>
+    Layers
+  </button>
 
+  <button class="tab-btn" data-tab="tab-pins">
+    <span class="ico" aria-hidden="true">
+      <!-- pin icon -->
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s6-6 6-10a6 6 0 10-12 0c0 4 6 10 6 10z" stroke="currentColor" stroke-width="1.6"/></svg>
+    </span>
+    Pins
+  </button>
 
-        <label><input type="checkbox" id="showBase" checked> Base map</label>
-        <label><input type="checkbox" id="showImagery"> Satellite Imagery (WMTS)</label>
-
-                <!-- Imagery blend slider -->
-<div id="imageryBlendRow" style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0 0 1.5rem;">
-  <label for="imageryOpacity" style="font-size:0.9rem;opacity:.85;min-width:3.5rem;">Blend</label>
-  <input type="range" id="imageryOpacity" min="0" max="100" value="50" step="1" style="flex:1;">
-  <span id="imageryOpacityVal" style="font-variant-numeric:tabular-nums;">100%</span>
+  <button class="tab-btn" data-tab="tab-search">
+    <span class="ico" aria-hidden="true">
+      <!-- search icon -->
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/><path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </span>
+    Search
+  </button>
 </div>
-  <label><input type="checkbox" id="showCLUPA"> Crown Land (CLUPA)</label>
 
-        <label><input type="checkbox" id="showContours"> Elevation Contours</label>
-        <label><input type="checkbox" id="showPins" checked> Pins</label>
-        <label><input type="checkbox" id="showCrosshair" checked> Crosshair</label>
-        <label><input type="checkbox" id="showStocked"> Stocked Lakes</label>
-        <label><input type="checkbox" id="showAccess"> Access Points</label>
-        <label><input type="checkbox" id="showTrails"> Trails (OTN)</label>
-            
-        <!-- New master control for all CLUPA layers -->
-      
-      </div>
-    </section>
 
-    <section class="panel-section">
-      <h3>Pin Drops</h3>
-      <div class="row">
-        <select id="pinType">
-          <option>Camping</option><option>Water</option><option>Viewpoint</option>
-          <option>Hazard</option><option>Parking</option><option>Other</option>
-        </select>
-        <input id="pinLabel" type="text" placeholder="Label (e.g., Camp A)" />
-      </div>
-      <div class="row">
-        <button class="btn" id="addPinBtn">➕ Add pin here</button>
-        <button class="btn" id="exportPinsBtn">⬇️ Download pins (GPX)</button>
-      </div>
-      <div class="row">
-        <label class="btn" for="importPinsInput">⬆️ Upload pins (JSON/GPX)</label>
-        <input id="importPinsInput" type="file" accept=".json,.geojson,.gpx" />
-        <span id="pinCount" class="muted"></span>
-      </div>
-    </section>
+    <!-- ===== Tab: Layers ===== -->
+    <section id="tab-map" class="tab-panel active" aria-label="Layers">
+      <section class="panel-section">
+        <h3>Filters</h3>
+        <div class="filters" id="filters">
+          <label><input type="checkbox" id="showBase" checked> Base map</label>
+          <label><input type="checkbox" id="showImagery"> Satellite Imagery (WMTS)</label>
 
-    <section class="panel-section">
-      <h3>Track Recorder</h3>
-      <div class="row">
-        <button class="btn" id="trackStartBtn">● Start</button>
-        <button class="btn" id="trackStopBtn" disabled>■ Stop</button>
-        <button class="btn" id="trackSaveBtn" disabled>💾 Save GPX</button>
-      </div>
-    </section>
+          <!-- Imagery blend slider -->
+          <div id="imageryBlendRow" style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0 0 1.5rem;">
+            <label for="imageryOpacity" style="font-size:0.9rem;opacity:.85;min-width:3.5rem;">Blend</label>
+            <input type="range" id="imageryOpacity" min="0" max="100" value="50" step="1" style="flex:1;">
+            <span id="imageryOpacityVal" style="font-variant-numeric:tabular-nums;">100%</span>
+          </div>
 
-    <section class="panel-section">
-      <h3>Map Actions</h3>
-      <div class="row">
-        <button class="btn" id="locateBtn">📍 Locate</button>
-        <button class="btn" id="followBtn">▶️ Follow: Off</button>
-        <button class="btn" id="resetViewBtn">↺ Reset view</button>
-      </div>
-    </section>
-
-    <section class="panel-section">
-      <h3>Legend</h3>
-
-      <!-- Existing legend items -->
-      <div class="legend-items">
-        <div><span class="legend-line legend-base"></span>Base</div>
-        <div><span class="legend-line legend-trail"></span>Trails (OTN)</div>
-        <div><span class="legend-dot"></span>Your location</div>
-      </div>
-
-      <!-- New contour color legend (like example) -->
-      <div class="contour-legend">
-        <div class="contour-legend-title">Elevation (m)</div>
-        <div class="contour-ramp" aria-hidden="true"></div>
-        <div class="contour-ticks">
-          <span id="elevMinTick">0</span>
-          <span id="elevMidTick">350</span>
-          <span id="elevMaxTick">700</span>
+          <label><input type="checkbox" id="showCLUPA"> Crown Land (CLUPA)</label>
+          <label><input type="checkbox" id="showContours"> Elevation Contours</label>
+          <label><input type="checkbox" id="showPins" checked> Pins</label>
+          <label><input type="checkbox" id="showCrosshair" checked> Crosshair</label>
+          <label><input type="checkbox" id="showStocked"> Stocked Lakes</label>
+          <label><input type="checkbox" id="showAccess"> Access Points</label>
+          <label><input type="checkbox" id="showTrails"> Trails (OTN)</label>
         </div>
-        <div class="contour-note" id="contourHint">Zoom to <b>11+</b> to load contours</div>
-        <div class="contour-note">Version 1.0.5 </div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Legend</h3>
+
+        <div class="legend-items">
+          <div><span class="legend-line legend-base"></span>Base</div>
+          <div><span class="legend-line legend-trail"></span>Trails (OTN)</div>
+          <div><span class="legend-dot"></span>Your location</div>
+        </div>
+
+        <!-- Contour color legend -->
+        <div class="contour-legend">
+          <div class="contour-legend-title">Elevation (m)</div>
+          <div class="contour-ramp" aria-hidden="true"></div>
+          <div class="contour-ticks">
+            <span id="elevMinTick">0</span>
+            <span id="elevMidTick">350</span>
+            <span id="elevMaxTick">700</span>
+          </div>
+          <div class="contour-note" id="contourHint">Zoom to <b>11+</b> to load contours</div>
+          <div class="contour-note">Version 1.0.6</div>
+        </div>
+      </section>
+    </section>
+
+    <!-- ===== Tab: Pins ===== -->
+    <section id="tab-pins" class="tab-panel" aria-label="Pins">
+      <section class="panel-section">
+        <h3>Pin Drops</h3>
+        <div class="row">
+          <select id="pinType">
+            <option>Camping</option><option>Water</option><option>Viewpoint</option>
+            <option>Hazard</option><option>Parking</option><option>Other</option>
+          </select>
+          <input id="pinLabel" type="text" placeholder="Label (e.g., Camp A)" />
+        </div>
+        <div class="row">
+          <button class="btn" id="addPinBtn">➕ Add pin here</button>
+          <button class="btn" id="exportPinsBtn">⬇️ Download pins (GPX)</button>
+        </div>
+        <div class="row">
+          <label class="btn" for="importPinsInput">⬆️ Upload pins (JSON/GPX)</label>
+          <input id="importPinsInput" type="file" accept=".json,.geojson,.gpx" />
+          <span id="pinCount" class="muted"></span>
+        </div>
+      </section>
+
+            <section class="panel-section">
+        <h3>Track Recorder</h3>
+        <div class="row">
+          <button class="btn" id="trackStartBtn">● Start</button>
+          <button class="btn" id="trackStopBtn" disabled>■ Stop</button>
+          <button class="btn" id="trackSaveBtn" disabled>💾 Save GPX</button>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Map Actions</h3>
+        <div class="row">
+          <button class="btn" id="locateBtn">📍 Locate</button>
+          <button class="btn" id="followBtn">▶️ Follow: Off</button>
+          <button class="btn" id="resetViewBtn">↺ Reset view</button>
+        </div>
+      </section>
+
+    </section>
+
+    <!-- ===== Tab: Search ===== -->
+    <section id="tab-search" class="tab-panel" aria-label="Search">
+      <section class="panel-section">
+        <h3>Search (Ontario / Quebec)</h3>
+        <div class="search-row">
+          <input id="searchInput" type="text" placeholder="Address, lake, park…" autocomplete="off">
+          <button class="btn" id="searchBtn">Search</button>
+        </div>
+        <div id="searchResults" class="search-results" role="listbox" aria-label="Results"></div>
+      </section>
     </section>
   </aside>
 

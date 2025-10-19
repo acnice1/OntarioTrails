@@ -81,9 +81,19 @@ async function fetchFirstJSON(candidates, opts = {}) {
 
 
 // ---------------------------------------------------------------------------
-// Geocoder (Ontario/Quebec-bounded Nominatim wrapper)
+// Geocoder in Panel (Ontario/Quebec-bounded Nominatim wrapper)
 // ---------------------------------------------------------------------------
-if (window.L?.Control?.Geocoder) {
+const searchInput   = document.getElementById('searchInput');
+const searchBtn     = document.getElementById('searchBtn');
+const searchResults = document.getElementById('searchResults');
+
+let searchMarker = null;
+
+(function initPanelSearch(){
+  if (!window.L?.Control?.Geocoder) {
+    console.warn('Leaflet Control Geocoder not found. Check CDN script tag.');
+    return;
+  }
   const ON_QC_BOUNDS = L.latLngBounds([41.6, -95.0], [62.0, -57.0]);
   const ALLOWED_STATES = new Set(['Ontario', 'Québec', 'Quebec']);
 
@@ -97,8 +107,8 @@ if (window.L?.Control?.Geocoder) {
   });
 
   const constrained = {
-    geocode: function (query, cb, context) {
-      nom.geocode(query, function (results) {
+    geocode: function(query, cb, context){
+      nom.geocode(query, function(results){
         const filtered = results.filter(r => {
           const inBox = ON_QC_BOUNDS.contains(r.center);
           const addr  = r.properties?.address || {};
@@ -108,27 +118,45 @@ if (window.L?.Control?.Geocoder) {
         });
         cb.call(context, filtered);
       });
-    },
-    reverse: function () {
-      return nom.reverse.apply(nom, arguments);
     }
   };
 
-  L.Control.geocoder({
-    geocoder: constrained,
-    defaultMarkGeocode: false,
-    placeholder: 'Search Ontario / Quebec…'
-  })
-  .on('markgeocode', (e) => {
-    const g = e.geocode;
-    if (g && g.bbox) map.fitBounds(g.bbox, { maxZoom: 23 });
-    else if (g?.center) map.setView(g.center, 15);
-    if (g?.center) L.marker(g.center).addTo(map).bindPopup(g.name || 'Location').openPopup();
-  })
-  .addTo(map);
-} else {
-  console.warn('Leaflet Control Geocoder not found. Check CDN script tag.');
-}
+  function renderResults(list){
+    if (!searchResults) return;
+    searchResults.innerHTML = '';
+    if (!list || !list.length){
+      searchResults.innerHTML = `<div class="empty">No results</div>`;
+      return;
+    }
+    list.slice(0, 12).forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'item';
+      div.textContent = r.name || r.html || r.properties?.display_name || 'Result';
+      div.addEventListener('click', () => {
+        if (r.bbox) map.fitBounds(r.bbox, { maxZoom: 23, padding: [24,24] });
+        else if (r.center) map.setView(r.center, Math.max(map.getZoom(), 15));
+
+        if (searchMarker) map.removeLayer(searchMarker);
+        if (r.center) {
+          searchMarker = L.marker(r.center).addTo(map)
+            .bindPopup(r.name || 'Location').openPopup();
+        }
+      });
+      searchResults.appendChild(div);
+    });
+  }
+
+  async function runSearch(){
+    const q = (searchInput?.value || '').trim();
+    if (!q) { renderResults([]); return; }
+    constrained.geocode(q, (results) => renderResults(results));
+  }
+
+  searchBtn?.addEventListener('click', runSearch);
+  searchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSearch();
+  });
+})();
 
 
 // ---------------------------------------------------------------------------
@@ -177,6 +205,25 @@ toggle?.addEventListener('click', () =>
   panel?.classList.contains('open') ? closePanel() : openPanel()
 );
 closeBtn?.addEventListener('click', closePanel);
+
+
+//
+// Tabs: simple show/hide
+// Persist last-opened tab in localStorage
+const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+const tabPanels  = Array.from(document.querySelectorAll('.tab-panel'));
+function activateTab(id){
+  tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+  tabPanels.forEach(p => p.classList.toggle('active', p.id === id));
+  // Persist last tab
+  try { localStorage.setItem('ontarioTrails.lastTab', id); } catch {}
+}
+tabButtons.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
+(function restoreLastTab(){
+  const id = localStorage.getItem('ontarioTrails.lastTab') || 'tab-map';
+  activateTab(id);
+})();
+
 
 showBaseCk?.addEventListener('change', () => {
   showBaseCk.checked ? base.addTo(map) : map.removeLayer(base);
@@ -677,10 +724,11 @@ function setClupaOverlay(on) {
 
 // Identify-on-click (only when one/both CLUPA toggles are on)
 map.on('click', (e) => {
-  // Use the master checkbox if present; otherwise fall back to legacy pair
   const masterOn = !!showCLUPA?.checked;
- // const provOn   = masterOn ? true : !!showCLUPAProv?.checked;
- // const overOn   = masterOn ? true : !!showCLUPAOverlay?.checked;
+
+  // Define these (don’t leave them commented)
+  const provOn = masterOn ? true : !!showCLUPAProv?.checked;
+  const overOn = masterOn ? true : !!showCLUPAOverlay?.checked;
 
   const active = [];
   if (provOn) active.push(5);
