@@ -1,13 +1,29 @@
 {
   "name": "Ontario Trails — GPS Web Map",
   "short_name": "Ontario Trails",
-  "description": "GPS-enabled trail map with offline cache, pins, track recording, and GPX I/O.",
-  "start_url": "./",
+  "description": "Offline-capable GPS-enabled web map for Ontario and Quebec — trails, stocked lakes, access points, contours, and Crown Land overlays.",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#1472ff",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ]
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "lang": "en-CA",
+  "categories": ["navigation", "maps", "travel", "outdoors"],
+  "prefer_related_applications": false,
+  "id": "ca.ontario.trails.gpswebmap"
 }

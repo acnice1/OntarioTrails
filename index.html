@@ -111,7 +111,7 @@
             <span id="elevMaxTick">700</span>
           </div>
           <div class="contour-note" id="contourHint">Zoom to <b>11+</b> to load contours</div>
-          <div class="contour-note">Version 1.0.6</div>
+          <div class="contour-note">Version 1.0.7</div>
         </div>
       </section>
     </section>
@@ -179,5 +179,40 @@
 
   <!-- App JS -->
   <script defer src="./app.js"></script>
+
+  <script>
+  // PWA Service Worker registration and auto-update activation
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', async () => {
+      try {
+        const reg = await navigator.serviceWorker.register('./service-worker.js');
+        console.info('Service Worker registered:', reg.scope);
+
+        // Listen for updates
+        reg.addEventListener('updatefound', () => {
+          const newSW = reg.installing;
+          if (!newSW) return;
+
+          newSW.addEventListener('statechange', () => {
+            if (newSW.state === 'installed') {
+              if (navigator.serviceWorker.controller) {
+                console.info('New version available — activating...');
+                newSW.postMessage('SKIP_WAITING');
+                // Optional: prompt user or reload immediately
+                setTimeout(() => window.location.reload(), 800);
+              } else {
+                console.info('Service Worker installed for the first time.');
+              }
+            }
+          });
+        });
+      } catch (err) {
+        console.warn('Service Worker registration failed:', err);
+      }
+    });
+  }
+</script>
+
+
 </body>
 </html>
