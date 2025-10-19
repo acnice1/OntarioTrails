@@ -89,10 +89,17 @@ const searchResults = document.getElementById('searchResults');
 
 let searchMarker = null;
 
+let searchSeq = 0;               // increments each query to ignore stale results
+let typingSeq = 0;               // tracks the latest keystroke
+const debouncer = (fn, wait=250) => {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+};
+
+
 (function initPanelSearch(){
   if (!window.L?.Control?.Geocoder) {
     console.warn('Leaflet Control Geocoder not found. Check CDN script tag.');
-    return;
+    return; 
   }
   const ON_QC_BOUNDS = L.latLngBounds([41.6, -95.0], [62.0, -57.0]);
   const ALLOWED_STATES = new Set(['Ontario', 'Québec', 'Quebec']);
@@ -121,41 +128,93 @@ let searchMarker = null;
     }
   };
 
-  function renderResults(list){
-    if (!searchResults) return;
-    searchResults.innerHTML = '';
-    if (!list || !list.length){
-      searchResults.innerHTML = `<div class="empty">No results</div>`;
-      return;
-    }
-    list.slice(0, 12).forEach(r => {
-      const div = document.createElement('div');
-      div.className = 'item';
-      div.textContent = r.name || r.html || r.properties?.display_name || 'Result';
-      div.addEventListener('click', () => {
-        if (r.bbox) map.fitBounds(r.bbox, { maxZoom: 23, padding: [24,24] });
-        else if (r.center) map.setView(r.center, Math.max(map.getZoom(), 15));
 
-        if (searchMarker) map.removeLayer(searchMarker);
-        if (r.center) {
-          searchMarker = L.marker(r.center).addTo(map)
-            .bindPopup(r.name || 'Location').openPopup();
-        }
-      });
-      searchResults.appendChild(div);
+function setResultsMessage(msg){
+  if (!searchResults) return;
+  searchResults.innerHTML = `<div class="empty">${msg}</div>`;
+}
+
+
+function renderResults(list) {
+  if (!searchResults) return;
+  searchResults.innerHTML = '';
+
+  // Handle empty or undefined results
+  if (!Array.isArray(list) || list.length === 0) {
+    setResultsMessage('No results found.');
+    return;
+  }
+
+  // If Nominatim hit its result cap, warn that results may be incomplete
+  const MAX_NOM_RESULTS = 10;
+
+  if (list.length >= MAX_NOM_RESULTS) {
+    const note = document.createElement('div');
+    note.className = 'empty';
+    note.style.fontStyle = 'italic';
+    note.style.padding = '6px 10px';
+    note.textContent = 'Showing first ' + MAX_NOM_RESULTS + ' matches (try refining your search)';
+    searchResults.appendChild(note);
+  }
+
+  // Render up to MAX_NOM_RESULTS results
+  list.slice(0, MAX_NOM_RESULTS).forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'item';
+    div.textContent = r.name || r.html || r.properties?.display_name || 'Result';
+    div.addEventListener('click', () => {
+      if (r.bbox) map.fitBounds(r.bbox, { maxZoom: 23, padding: [24,24] });
+      else if (r.center) map.setView(r.center, Math.min(Math.max(map.getZoom(), 12), 14));
+
+      if (searchMarker) map.removeLayer(searchMarker);
+      if (r.center) {
+        searchMarker = L.marker(r.center)
+          .addTo(map)
+          .bindPopup(r.name || 'Location')
+          .openPopup();
+      }
     });
-  }
-
-  async function runSearch(){
-    const q = (searchInput?.value || '').trim();
-    if (!q) { renderResults([]); return; }
-    constrained.geocode(q, (results) => renderResults(results));
-  }
-
-  searchBtn?.addEventListener('click', runSearch);
-  searchInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') runSearch();
+    searchResults.appendChild(div);
   });
+}
+
+
+
+const runSearch = async (q, mySeq) => {
+  if (!q || q.length < 3) { setResultsMessage('Type at least 3 characters…'); return; }
+  setResultsMessage('Searching…');
+  constrained.geocode(q, (results) => {
+    // Ignore stale callbacks
+    if (mySeq !== searchSeq) return;
+    renderResults(results);
+  });
+};
+
+// Button still works (immediate search)
+searchBtn?.addEventListener('click', () => {
+  const q = (searchInput?.value || '').trim();
+  searchSeq++; runSearch(q, searchSeq);
+});
+
+// Hit Enter still works
+searchInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { searchSeq++; runSearch((searchInput.value || '').trim(), searchSeq); }
+});
+
+// NEW: dynamic search after 3 chars (debounced)
+const debouncedTypeSearch = debouncer(() => {
+  const q = (searchInput?.value || '').trim();
+  searchSeq = ++typingSeq;         // advance both; this seq marks the latest typing intent
+  if (q.length < 3) setResultsMessage('Type at least 3 characters…');
+  else runSearch(q, searchSeq);
+}, 300);
+
+searchInput?.addEventListener('input', () => {
+  const q = (searchInput?.value || '').trim();
+  if (!q) { setResultsMessage(''); return; }
+  debouncedTypeSearch();
+});
+
 })();
 
 
