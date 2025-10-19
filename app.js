@@ -631,13 +631,26 @@ const clupaOverlay = L.esri.dynamicMapLayer({
 const showCLUPAProv   = document.getElementById('showCLUPAProv');
 const showCLUPAOverlay= document.getElementById('showCLUPAOverlay');
 
-showCLUPAProv?.addEventListener('change', () => {
-  if (showCLUPAProv.checked) {
-    // Add in visual stacking order: fill -> outline -> labels
+// Master toggle: turn BOTH CLUPA layers on/off (fills + outlines + labels)
+function setClupaAll(on) {
+  setClupaProv(on);
+  setClupaOverlay(on);
+  // keep any legacy per-layer checkboxes visually in sync if they exist
+  if (typeof showCLUPAProv   !== 'undefined' && showCLUPAProv)    showCLUPAProv.checked = on;
+  if (typeof showCLUPAOverlay!== 'undefined' && showCLUPAOverlay) showCLUPAOverlay.checked = on;
+}
+
+
+showCLUPAProv?.addEventListener('change', () => setClupaProv(showCLUPAProv.checked));
+showCLUPAOverlay?.addEventListener('change', () => setClupaOverlay(showCLUPAOverlay.checked));
+
+
+function setClupaProv(on) {
+  if (on) {
     clupaProvFill.addTo(map);
     clupaProvOutline.addTo(map);
     clupaLabels.addTo(map);
-    // (Optional) If you still want server-rendered symbology beneath, uncomment:
+    // If you still want the server-rendered layer under the fill, uncomment:
     // clupaProv.addTo(map);
   } else {
     map.removeLayer(clupaProvFill);
@@ -645,10 +658,10 @@ showCLUPAProv?.addEventListener('change', () => {
     // map.removeLayer(clupaProv);
     if (!showCLUPAOverlay?.checked) map.removeLayer(clupaLabels);
   }
-});
+}
 
-showCLUPAOverlay?.addEventListener('change', () => {
-  if (showCLUPAOverlay.checked) {
+function setClupaOverlay(on) {
+  if (on) {
     clupaOverlayFill.addTo(map);
     clupaOverlayOutline.addTo(map);
     clupaLabels.addTo(map);
@@ -659,14 +672,19 @@ showCLUPAOverlay?.addEventListener('change', () => {
     // map.removeLayer(clupaOverlay);
     if (!showCLUPAProv?.checked) map.removeLayer(clupaLabels);
   }
-});
+}
 
 
 // Identify-on-click (only when one/both CLUPA toggles are on)
 map.on('click', (e) => {
+  // Use the master checkbox if present; otherwise fall back to legacy pair
+  const masterOn = !!showCLUPA?.checked;
+ // const provOn   = masterOn ? true : !!showCLUPAProv?.checked;
+ // const overOn   = masterOn ? true : !!showCLUPAOverlay?.checked;
+
   const active = [];
-  if (showCLUPAProv?.checked) active.push(5);
-  if (showCLUPAOverlay?.checked) active.push(4);
+  if (provOn) active.push(5);
+  if (overOn) active.push(4);
   if (!active.length) return;
 
   L.esri.identifyFeatures({ url: CLUPA_SERVICE_URL })
@@ -679,7 +697,6 @@ map.on('click', (e) => {
       if (err || !fc?.features?.length) return;
       const f = fc.features[0];
       const p = f.properties || {};
-      // Helpful fields; fall back gracefully.
       const name = p.NAME_ENG || p.NAME_FR || p.DESIGNATION_ENG || 'Area';
       const policy = p.POLICY_IDENT ? `<div><b>Policy ID:</b> ${p.POLICY_IDENT}</div>` : '';
       const des   = p.DESIGNATION_ENG ? `<div><b>Designation:</b> ${p.DESIGNATION_ENG}</div>` : '';
@@ -690,6 +707,7 @@ map.on('click', (e) => {
         .openOn(map);
     });
 });
+
 
 
 // ---------------------------------------------------------------------------
@@ -1122,8 +1140,20 @@ restoreCheckbox(showCrosshair, () => updateCrosshair());
 restoreCheckbox(showImagery, (on) => { on ? imagery.addTo(map) : map.removeLayer(imagery); });
 
 // CLUPA family (if present in HTML)
-restoreCheckbox('showCLUPAProv',   (on) => { if (typeof clupaProv   !== 'undefined') on ? clupaProv.addTo(map)   : map.removeLayer(clupaProv); });
-restoreCheckbox('showCLUPAOverlay', (on) => { if (typeof clupaOverlay!== 'undefined') on ? clupaOverlay.addTo(map): map.removeLayer(clupaOverlay); });
+
+// Grab the new master checkbox (keep the old two if they still exist)
+const showCLUPA = document.getElementById('showCLUPA');
+
+// Master checkbox: single source of truth
+showCLUPA?.addEventListener('change', () => setClupaAll(showCLUPA.checked));
+
+// Persist the master checkbox state
+restoreCheckbox('showCLUPA', (on) => setClupaAll(on));
+
+
+//restoreCheckbox('showCLUPAProv',   (on) => setClupaProv(on));
+//restoreCheckbox('showCLUPAOverlay', (on) => setClupaOverlay(on));
+
 
 // Optional (commented): Parks/Reserves/Canada Lands
 // restoreCheckbox('showProvParks',   (on) => { if (typeof provParks    !== 'undefined') on ? provParks.addTo(map)    : map.removeLayer(provParks); });
