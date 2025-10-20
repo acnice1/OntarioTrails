@@ -980,6 +980,24 @@ const runSearch = async (q, mySeq) => {
   // ---------------------------------------------------------------------------
   // Pins (add/import/export; tooltip; count)
   // ---------------------------------------------------------------------------
+
+  // Persist pins
+  const PINS_KEY = 'ontarioTrails.pins.v1';
+
+  function loadPinsFromStorage() {
+    try {
+      const raw = localStorage.getItem(PINS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter(p =>
+        Number.isFinite(+p.lat) && Number.isFinite(+p.lng)
+      ) : [];
+    } catch { return []; }
+  }
+
+  function savePinsToStorage() {
+    try { localStorage.setItem(PINS_KEY, JSON.stringify(pins)); } catch {}
+  }
+
   const pinsLayer       = L.layerGroup().addTo(map);
   const pinType         = document.getElementById('pinType');
   const pinLabel        = document.getElementById('pinLabel');
@@ -988,8 +1006,9 @@ const runSearch = async (q, mySeq) => {
   const exportPinsBtn   = document.getElementById('exportPinsBtn');
   const pinCount        = document.getElementById('pinCount');
 
-  let pins = [];
-  function refreshPins() {
+  let pins = loadPinsFromStorage();
+    refreshPins();
+
     pinsLayer.clearLayers();
     pins.forEach(p => {
       const m = L.marker([p.lat, p.lng], { title: p.label || p.type });
@@ -997,10 +1016,12 @@ const runSearch = async (q, mySeq) => {
       m.addTo(pinsLayer);
     });
     if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
-  }
+  
+
   addPinBtn?.addEventListener('click', () => {
     const c = map.getCenter();
     pins.push({ type: pinType?.value || 'Other', label: (pinLabel?.value || '').trim(), lat: c.lat, lng: c.lng });
+     savePinsToStorage(); 
     refreshPins();
   });
   exportPinsBtn?.addEventListener('click', () => {
@@ -1030,6 +1051,7 @@ const runSearch = async (q, mySeq) => {
       } catch { /* ignore bad JSON */ }
     }
     pins.push(...parsed);
+    savePinsToStorage(); 
     refreshPins();
     e.target.value = '';
   });
@@ -1055,6 +1077,36 @@ const runSearch = async (q, mySeq) => {
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
   }
+
+function refreshPins() {
+  pinsLayer.clearLayers();
+  pins.forEach((p, idx) => {
+    const m = L.marker([p.lat, p.lng], { title: p.label || p.type });
+    m.bindTooltip(p.label || p.type);
+    m.addTo(pinsLayer);
+
+    const doDelete = () => {
+      // remove index safely (handles duplicates)
+      pins.splice(idx, 1);
+      savePinsToStorage();
+      refreshPins();
+    };
+
+    // Right-click (context menu) deletes
+    m.on('contextmenu', (e) => {
+      // optional confirm; comment out if you want immediate delete
+      if (confirm(`Delete pin "${p.label || p.type}"?`)) doDelete();
+    });
+
+    // Alt/Option-click also deletes (handy on touchpads)
+    m.on('click', (e) => {
+      const ev = e.originalEvent;
+      if (ev && (ev.altKey || ev.metaKey)) doDelete();
+    });
+  });
+
+  if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
+}
 
 
   // ---------------------------------------------------------------------------
