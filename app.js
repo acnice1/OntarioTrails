@@ -1278,34 +1278,59 @@ renderPinList();
   const locateBtn    = document.getElementById('locateBtn');
   const followBtn    = document.getElementById('followBtn');
   const resetViewBtn = document.getElementById('resetViewBtn');
+
+  const LOCATE_ZOOM = 15; // how far to zoom on locate
+
+
   let watching = false, watchId = null, follow = false, you = null;
 
   function ensureMarker() {
     if (!you) you = L.circleMarker([0,0], { radius: 6, color: '#ff00a8' }).addTo(map);
     return you;
   }
-  function startLocate() {
-    if (watching) return;
-    if (!('geolocation' in navigator)) { alert('Geolocation not supported'); return; }
-    watching = true;
-    watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        ensureMarker().setLatLng([latitude, longitude]);
-        if (follow) map.setView([latitude, longitude]);
-        
-    
-        console.log('Geolocation position:', latitude, longitude); //LOG
 
-         onGeoPosition(pos); // NEW: let the recorder consume positions
+ function startLocate(centerOnFix = false) {
+  if (watching) return;
+  if (!('geolocation' in navigator)) { alert('Geolocation not supported'); return; }
+  watching = true;
 
-      },
-      (err) => console.warn('Geolocation error:', err),
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-    );
-    if (locateBtn) locateBtn.disabled = true;
+  let centerOnce = centerOnFix;  // <-- capture the intent for the first fix
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      ensureMarker().setLatLng([latitude, longitude]);
+
+      // Recenter if Follow is on OR this locate-click requested a one-time center
+      if (follow || centerOnce) {
+        map.setView([latitude, longitude], Math.max(map.getZoom(), LOCATE_ZOOM));
+        centerOnce = false; // only once per locate click
+      }
+
+      // Track recorder hook stays as-is
+      onGeoPosition(pos);
+    },
+    (err) => console.warn('Geolocation error:', err),
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+  if (locateBtn) locateBtn.disabled = true;
+}
+
+
+locateBtn?.addEventListener('click', () => {
+  if (!watching) {
+    // Start GNSS and recenter on the first fix
+    startLocate(true);
+  } else {
+    // Already watching: if we have a current position marker, recenter now
+    if (you) {
+      map.setView(you.getLatLng(), Math.max(map.getZoom(), LOCATE_ZOOM));
+    } else {
+      // No marker yet? request a one-time center on next fix
+      startLocate(true);
+    }
   }
-  locateBtn?.addEventListener('click', () => { if (!watching) startLocate(); });
+});
 
   followBtn?.addEventListener('click', () => {
     follow = !follow;
@@ -1568,11 +1593,11 @@ enableSaveIfReady();
     if (!contourHintEl) return;
     const z = map.getZoom();
     if (!showContours?.checked) {
-      contourHintEl.innerHTML = `Enable <b>Contours</b> to view elevation lines`;
+      contourHintEl.innerHTML = `Enable <b>Elevation Contours</b> to view elevation lines`;
       return;
     }
     contourHintEl.innerHTML = (z >= CONTOUR_ZOOM_THRESHOLD)
-      ? `Contours loaded (zoom ${z}).`
+      ? `Contours loaded (Current zoom ${z}).`
       : `Zoom to <b>${CONTOUR_ZOOM_THRESHOLD}+</b> to load contours`;
   }
   function updateContourVisibility(){
