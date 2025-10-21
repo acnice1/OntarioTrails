@@ -1006,17 +1006,31 @@ const runSearch = async (q, mySeq) => {
   const exportPinsBtn   = document.getElementById('exportPinsBtn');
   const pinCount        = document.getElementById('pinCount');
 
-  let pins = loadPinsFromStorage();
-    refreshPins();
+    // ---------------------------------------------------------------------------
+// Pin icons by type (emoji-based for simplicity; easy to swap for custom SVG)
+// ---------------------------------------------------------------------------
+const PIN_ICONS = {
+  'Camping':  '🏕️',
+  'Water':    '💧',
+  'Viewpoint':'📸',
+  'Hazard':   '⚠️',
+  'Parking':  '🅿️',
+  'Other':    '📍'
+};
 
-    pinsLayer.clearLayers();
-    pins.forEach(p => {
-      const m = L.marker([p.lat, p.lng], { title: p.label || p.type });
-      m.bindTooltip(p.label || p.type);
-      m.addTo(pinsLayer);
-    });
-    if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
-  
+// Generate a small divIcon for a given type
+function iconForType(type) {
+  const emoji = PIN_ICONS[type] || PIN_ICONS['Other'];
+  return L.divIcon({
+    className: 'leaflet-div-icon custom-pin-icon', // add base class
+    html: `<div class="pin-emoji">${emoji}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+    popupAnchor: [0, -24]
+  });
+}
+
+  let pins = loadPinsFromStorage();
 
   addPinBtn?.addEventListener('click', () => {
     const c = map.getCenter();
@@ -1078,10 +1092,15 @@ const runSearch = async (q, mySeq) => {
     URL.revokeObjectURL(url);
   }
 
+
 function refreshPins() {
   pinsLayer.clearLayers();
   pins.forEach((p, idx) => {
-    const m = L.marker([p.lat, p.lng], { title: p.label || p.type });
+    const m = L.marker([p.lat, p.lng], {
+      title: p.label || p.type,
+      icon: iconForType(p.type)
+   });
+
     m.bindTooltip(p.label || p.type);
     m.addTo(pinsLayer);
 
@@ -1108,6 +1127,143 @@ function refreshPins() {
   if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
 }
 
+// ----------------------------------------------------------------------------
+// Pins List UI (in the Pins tab) — create container, render, and wire actions
+// ----------------------------------------------------------------------------
+
+// Keep references to marker instances by index so we can fly/open tooltip
+let pinMarkers = []; // filled by refreshPins()
+
+function ensurePinListContainer() {
+  // Try to find an existing container
+  let el = document.getElementById('pinList');
+  if (el) return el;
+
+  // Create and insert below the last row inside the Pins tab
+  const pinsTab = document.getElementById('tab-pins');
+  const parentSection = pinsTab?.querySelector('.panel-section');
+  el = document.createElement('div');
+  el.id = 'pinList';
+  el.className = 'pin-list';
+  el.style.marginTop = '8px';
+  el.innerHTML = ''; // will be filled by renderPinList()
+  parentSection?.appendChild(el);
+  return el;
+}
+
+function formatCoords(lat, lng) {
+  const f = (n) => (Math.abs(n).toFixed(5)) + (n >= 0 ? (n === lat ? '°N' : '°E') : (n === lat ? '°S' : '°W'));
+  return `${f(lat)}, ${f(lng)}`;
+}
+
+function renderPinList() {
+  const list = ensurePinListContainer();
+  if (!pins || !pins.length) {
+    list.innerHTML = `<div class="empty" style="opacity:.8">No pins yet.</div>`;
+    return;
+  }
+
+  // Simple list; click name = fly to, delete = remove
+  // Using data-idx so we can delegate events.
+  const rows = pins.map((p, idx) => {
+    const label = (p.label || p.type || 'Pin').toString().trim();
+    const coords = formatCoords(p.lat, p.lng);
+    return `
+      <div class="pin-item" data-idx="${idx}" style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;border-bottom:1px solid #eef2f7">
+        <button class="pin-zoom" data-action="zoom" data-idx="${idx}" title="Zoom to pin" style="border:1px solid #cbd5e1;border-radius:6px;padding:.25rem .5rem;background:#fff;cursor:pointer">🎯</button>
+        <div class="pin-main" data-action="zoom" data-idx="${idx}" style="flex:1 1 auto;cursor:pointer;">
+          <div style="font-weight:600;line-height:1.2">${label}</div>
+          <div class="muted" style="font-size:.85rem;opacity:.75">${coords}</div>
+        </div>
+        <button class="pin-del" data-action="del" data-idx="${idx}" title="Delete pin" style="border:1px solid #e11d48;border-radius:6px;padding:.25rem .5rem;background:#fff;color:#e11d48;cursor:pointer">🗑️</button>
+      </div>`;
+  }).join('');
+
+  list.innerHTML = `<div class="pin-list-wrap" role="list">${rows}</div>`;
+}
+
+// Event delegation for list actions
+ensurePinListContainer().addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.getAttribute('data-action');
+  const idx = Number(btn.getAttribute('data-idx'));
+  if (Number.isNaN(idx) || idx < 0 || idx >= pins.length) return;
+
+  if (action === 'zoom') {
+    // Ensure the pins layer is visible
+    if (typeof showPinsCk !== 'undefined' && showPinsCk && !map.hasLayer(pinsLayer)) {
+      showPinsCk.checked = true;
+      pinsLayer.addTo(map);
+    }
+
+    const p = pins[idx];
+    const target = [p.lat, p.lng];
+    map.setView(target, Math.max(map.getZoom(), 14));
+
+    // Try to open the marker tooltip
+    const m = pinMarkers[idx];
+    try { m?.openTooltip?.(); } catch {}
+  }
+
+  if (action === 'del') {
+    // Delete pin, persist, and refresh
+    pins.splice(idx, 1);
+    savePinsToStorage?.();
+    refreshPins();      // this will also re-render the list via our patched refreshPins
+    renderPinList();    // make sure UI reflects deletion
+  }
+});
+
+// --- Patch refreshPins() to fill pinMarkers and keep list in sync -----------
+const _refreshPins_orig = refreshPins; // keep original name if needed elsewhere
+
+refreshPins = function patchedRefreshPins() {
+  pinsLayer.clearLayers();
+  pinMarkers = [];
+
+pins.forEach((p, idx) => {
+    const m = L.marker([p.lat, p.lng], {
+      title: p.label || p.type,
+      icon: iconForType(p.type) // ✅ use your custom icon
+    });
+    m.bindTooltip(p.label || p.type);
+    m.addTo(pinsLayer);
+    pinMarkers[idx] = m;
+
+    // Optional: single-tap delete from marker popup (phone-friendly)
+    // Left-click opens popup with a delete button; remove if you don't want this.
+    m.on('click', () => {
+      const label = (p.label || p.type || 'Pin').toString();
+      m.bindPopup(
+        `<div style="min-width:180px">
+           <div style="font-weight:600;margin-bottom:6px">${esc(label)}</div>
+           <div style="font-size:.85rem;opacity:.7;margin-bottom:.5rem">${formatCoords(p.lat, p.lng)}</div>
+           <button class="pin-del-inline" style="padding:6px 10px;border:1px solid #c33;border-radius:6px;background:#fff;cursor:pointer">🗑️ Delete pin</button>
+         </div>`,
+        { closeButton: true }
+      ).openPopup();
+    });
+    m.on('popupopen', (ev) => {
+      ev?.popup?._contentNode?.querySelector?.('.pin-del-inline')?.addEventListener('click', () => {
+        const i = pinMarkers.indexOf(m);
+        if (i >= 0) {
+          pins.splice(i, 1);
+          savePinsToStorage?.();
+          refreshPins();
+          renderPinList();
+          try { map.closePopup(); } catch {}
+        }
+      });
+    });
+  });
+
+   if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
+  renderPinList();
+};
+
+// First render (if pins already loaded at boot)
+renderPinList();
 
   // ---------------------------------------------------------------------------
   // Locate / Follow / Reset View
@@ -1160,35 +1316,23 @@ function refreshPins() {
   // ---------------------------------------------------------------------------
   
   // ---------------------------------------------------------------------------
-// Track Recorder (records from the existing geolocation watch)
+
+// ---------------------------------------------------------------------------
+// Track Recorder (Start/Stop + Save), matches IDs: trackStartBtn, trackSaveBtn
 // ---------------------------------------------------------------------------
 const trackLayer = L.layerGroup().addTo(map);
 let trackLine = L.polyline([], { color: '#ff00a8', weight: 3, opacity: 0.9 }).addTo(trackLayer);
 let trackStartMarker = null;
 let trackEndMarker = null;
+
 let trackPoints = [];        // [{lat,lng,t,acc}]
 let recording = false;
-let paused = false;
-let recStartedAt = null;     // Date
-let recPausedAt = null;      // Date
-let recPausedMs = 0;         // total paused time
+let recStartedAt = null;
 let totalDistanceM = 0;
 
-// Try a few possible IDs so we don't break existing UIs
-const _byId = (...ids) => ids.map(id => document.getElementById(id)).find(Boolean) || null;
-const btnRecord   = _byId('trackStartBtn','startTrackBtn','recBtn');
-const btnPause    = _byId('trackPauseBtn','pauseTrackBtn');
-const btnSave     = _byId('trackSaveBtn','saveTrackBtn');
-const btnClear    = _byId('trackClearBtn','clearTrackBtn');
-const statsBox    = _byId('trackStats','recStats');
+const btnStart = document.getElementById('trackStartBtn');
+const btnSave  = document.getElementById('trackSaveBtn');
 
-function fmtHMS(ms){
-  const s = Math.floor(ms / 1000);
-  const hh = Math.floor(s/3600).toString().padStart(2,'0');
-  const mm = Math.floor((s%3600)/60).toString().padStart(2,'0');
-  const ss = (s%60).toString().padStart(2,'0');
-  return `${hh}:${mm}:${ss}`;
-}
 function distLL(a,b){ // meters (haversine)
   const R=6371000, toRad=d=>d*Math.PI/180;
   const dLat = toRad(b.lat-a.lat), dLng = toRad(b.lng-a.lng);
@@ -1196,21 +1340,6 @@ function distLL(a,b){ // meters (haversine)
   const q=s1*s1 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*s2*s2;
   return 2*R*Math.asin(Math.min(1,Math.sqrt(q)));
 }
-
-function updateStats(){
-  if (!statsBox) return;
-  const n = trackPoints.length;
-  const movingTime = recording
-    ? Date.now() - recStartedAt.getTime() - recPausedMs - (paused && recPausedAt ? (Date.now()-recPausedAt.getTime()) : 0)
-    : (recStartedAt ? ( (recPausedAt || new Date()).getTime() - recStartedAt.getTime() - recPausedMs ) : 0);
-
-  const km = (totalDistanceM/1000);
-  statsBox.innerHTML = `
-    <div><b>Points:</b> ${n}</div>
-    <div><b>Distance:</b> ${km.toFixed(2)} km</div>
-    <div><b>Time:</b> ${fmtHMS(Math.max(0,movingTime))}</div>`;
-}
-
 function ensureStartMarker(latlng){
   if (!trackStartMarker) {
     trackStartMarker = L.circleMarker(latlng, { radius: 6, color: '#15b374', fillColor:'#15b374', fillOpacity: 0.9 })
@@ -1225,7 +1354,10 @@ function updateEndMarker(latlng){
     trackEndMarker.setLatLng(latlng);
   }
 }
-
+function enableSaveIfReady(){
+  // enable when there’s something to save (>=2 points)
+  if (btnSave) btnSave.disabled = trackPoints.length < 2;
+}
 function addTrackPoint(pt){
   const last = trackPoints[trackPoints.length-1];
   trackPoints.push(pt);
@@ -1233,110 +1365,55 @@ function addTrackPoint(pt){
   if (last) totalDistanceM += distLL(last, pt);
   else ensureStartMarker([pt.lat, pt.lng]);
   updateEndMarker([pt.lat, pt.lng]);
-  updateStats();
+  enableSaveIfReady();
 }
 
+// Called by geolocation watcher (see step #1)
 function onGeoPosition(pos){
-  if (!recording || paused) return;   // only record while actively recording
+  if (!recording) return;
   const { latitude:lat, longitude:lng, accuracy:acc } = pos.coords || {};
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-  const t = Date.now();
 
-  // Optional: ignore wild jumps and very stale fixes
+  // Optional: ignore wild jumps (>200 m)
   const last = trackPoints[trackPoints.length-1];
-  if (last) {
-    const d = distLL(last, {lat,lng});
-    if (d > 200) return;               // >200 m jump? discard
-  }
+  if (last && distLL(last, {lat,lng}) > 200) return;
 
-  addTrackPoint({ lat, lng, t, acc });
+  addTrackPoint({ lat, lng, t: Date.now(), acc });
 }
 
-// Start/Stop
 function startRecording(){
   if (recording) return;
-  recording = true; paused = false;
+  recording = true;
   if (!recStartedAt) recStartedAt = new Date();
-  // If geolocation isn't running yet, start it so we get points
-  if (!watching) startLocate();
-  if (btnRecord) btnRecord.textContent = '⏹ Stop';
-  if (btnPause)  btnPause.disabled = false;
-  updateStats();
+  if (!watching) startLocate();             // start GNSS if not already
+  if (btnStart) btnStart.textContent = '■ Stop';
 }
 function stopRecording(){
-  if (!recording && !paused) return;
-  recording = false; paused = false;
-  if (btnRecord) btnRecord.textContent = '⏺ Record';
-  if (btnPause)  btnPause.disabled = true;
-  // finalize paused time if stopping while paused
-  if (recPausedAt) { recPausedMs += Date.now() - recPausedAt.getTime(); recPausedAt = null; }
-  updateStats();
+  if (!recording) return;
+  recording = false;
+  if (btnStart) btnStart.textContent = '● Start';
+  enableSaveIfReady(); // in case you stop before 2 pts, this will keep Save disabled
 }
-
-// Pause/Resume
-function togglePause(){
-  if (!recording && !paused) return; // nothing to pause if not started
-  if (!paused){
-    paused = true;
-    recPausedAt = new Date();
-    if (btnPause) btnPause.textContent = '▶️ Resume';
-  } else {
-    paused = false;
-    if (recPausedAt) { recPausedMs += Date.now() - recPausedAt.getTime(); recPausedAt = null; }
-    if (btnPause) btnPause.textContent = '⏸ Pause';
-  }
-  updateStats();
-}
-
-// Save GPX
 function saveTrackGPX(){
   if (trackPoints.length < 2) return;
   const name = `track_${new Date().toISOString().replace(/[:.]/g,'-')}`;
-  const wpts = '';
-  const trkpts = trackPoints.map(p => {
-    const iso = new Date(p.t).toISOString();
-    return `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><time>${iso}</time></trkpt>`;
-  }).join('');
+  const trkpts = trackPoints.map(p =>
+    `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><time>${new Date(p.t).toISOString()}</time></trkpt>`
+  ).join('');
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="OntarioTrails" xmlns="http://www.topografix.com/GPX/1/1">
-  <metadata><name>${name}</name></metadata>
-  ${wpts}
   <trk><name>${name}</name><trkseg>${trkpts}</trkseg></trk>
 </gpx>`;
   downloadText(`${name}.gpx`, gpx, 'application/gpx+xml');
 }
 
-// Clear
-function clearTrack(){
-  trackPoints = [];
-  totalDistanceM = 0;
-  recStartedAt = null;
-  recPausedAt = null;
-  recPausedMs = 0;
-  recording = false; paused = false;
-
-  trackLayer.clearLayers();
-  trackLine = L.polyline([], { color: '#ff00a8', weight: 3, opacity: 0.9 }).addTo(trackLayer);
-  trackStartMarker = null;
-  trackEndMarker = null;
-
-  if (btnRecord) btnRecord.textContent = '⏺ Record';
-  if (btnPause)  { btnPause.textContent = '⏸ Pause'; btnPause.disabled = true; }
-  updateStats();
-}
-
-// Wire buttons if present
-btnRecord?.addEventListener('click', () => {
-  if (!recording && !paused) startRecording(); else stopRecording();
+btnStart?.addEventListener('click', () => {
+  if (!recording) startRecording(); else stopRecording();
 });
-btnPause?.addEventListener('click', () => togglePause());
-btnSave?.addEventListener('click', () => saveTrackGPX());
-btnClear?.addEventListener('click', () => clearTrack());
+btnSave?.addEventListener('click', saveTrackGPX);
 
-// Initialize UI states
-if (btnRecord) btnRecord.textContent = '⏺ Record';
-if (btnPause)  { btnPause.textContent = '⏸ Pause'; btnPause.disabled = true; }
-updateStats();
+// Init button state (Save disabled until we have >=2 points)
+enableSaveIfReady();
 
 
   // ---------------------------------------------------------------------------

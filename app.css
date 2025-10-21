@@ -284,3 +284,15 @@ input[type="range"]::-moz-range-thumb{
   .leaflet-top.leaflet-right{ top: calc(env(safe-area-inset-top) + 10px); right: 10px; }
   .leaflet-top.leaflet-left { top: calc(env(safe-area-inset-top) + 60px); left: 10px; }
 }
+
+.custom-pin-icon .pin-emoji {
+  font-size: 22px;
+  line-height: 24px;
+  text-align: center;
+  filter: drop-shadow(0 0 2px #0003);
+}
+
+.custom-pin-icon {
+  transform: translateY(-4px);
+}
+

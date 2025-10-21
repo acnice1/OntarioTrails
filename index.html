@@ -57,12 +57,20 @@
     Pins
   </button>
 
+    <button class="tab-btn" data-tab="tab-track">
+    <span class="ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/></svg>
+    </span>
+    Track
+  </button>
+
+
   <button class="tab-btn" data-tab="tab-search">
     <span class="ico" aria-hidden="true">
       <!-- search icon -->
       <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/><path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
     </span>
-    Search
+    
   </button>
 </div>
 
@@ -137,8 +145,11 @@
           <span id="pinCount" class="muted"></span>
         </div>
       </section>
+      </section>
 
-            <section class="panel-section">
+    <!-- ===== Tab: Track Recorder ===== -->
+     <section id="tab-track" class="tab-panel" aria-label="Track">
+      <section class="panel-section">
         <h3>Track Recorder</h3>
         <div class="row">
           <button class="btn" id="trackStartBtn">● Start</button>
