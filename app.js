@@ -1163,24 +1163,31 @@ function renderPinList() {
     return;
   }
 
-  // Simple list; click name = fly to, delete = remove
-  // Using data-idx so we can delegate events.
   const rows = pins.map((p, idx) => {
-    const label = (p.label || p.type || 'Pin').toString().trim();
+    const label  = (p.label || p.type || 'Pin').toString().trim();
     const coords = formatCoords(p.lat, p.lng);
+    const emoji  = PIN_ICONS[p.type] || PIN_ICONS['Other'];
+
     return `
-      <div class="pin-item" data-idx="${idx}" style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;border-bottom:1px solid #eef2f7">
-        <button class="pin-zoom" data-action="zoom" data-idx="${idx}" title="Zoom to pin" style="border:1px solid #cbd5e1;border-radius:6px;padding:.25rem .5rem;background:#fff;cursor:pointer">🎯</button>
-        <div class="pin-main" data-action="zoom" data-idx="${idx}" style="flex:1 1 auto;cursor:pointer;">
-          <div style="font-weight:600;line-height:1.2">${label}</div>
+      <div class="pin-item" data-idx="${idx}" data-action="zoom"
+           style="display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid #eef2f7;cursor:pointer;">
+        <div class="pin-emoji" aria-hidden="true" data-action="zoom" data-idx="${idx}"
+             style="font-size:1.1rem;line-height:1">${emoji}</div>
+
+        <div class="pin-main" data-action="zoom" data-idx="${idx}" style="flex:1 1 auto;">
+          <div style="font-weight:600;line-height:1.2">${esc(label)}</div>
           <div class="muted" style="font-size:.85rem;opacity:.75">${coords}</div>
         </div>
-        <button class="pin-del" data-action="del" data-idx="${idx}" title="Delete pin" style="border:1px solid #e11d48;border-radius:6px;padding:.25rem .5rem;background:#fff;color:#e11d48;cursor:pointer">🗑️</button>
+
+        <button class="pin-del" data-action="del" data-idx="${idx}" title="Delete pin"
+                style="border:1px solid #e11d48;border-radius:6px;padding:.25rem .5rem;background:#fff;color:#e11d48;cursor:pointer">🗑️</button>
       </div>`;
   }).join('');
 
   list.innerHTML = `<div class="pin-list-wrap" role="list">${rows}</div>`;
 }
+
+
 
 // Event delegation for list actions
 ensurePinListContainer().addEventListener('click', (e) => {

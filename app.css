@@ -296,3 +296,12 @@ input[type="range"]::-moz-range-thumb{
   transform: translateY(-4px);
 }
 
+/* Remove Leaflet's default white background/border from emoji pins */
+.leaflet-div-icon.custom-pin-icon {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+
+.pin-list .pin-emoji { display:inline-flex; align-items:center; justify-content:center; width:1.4rem; }
