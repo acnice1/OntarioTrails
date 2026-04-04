@@ -1648,17 +1648,34 @@ function undoLastMeasurementPoint() {
 function toggleMeasurement() {
   measureOn = !measureOn;
   if (measureToggleBtn) {
-    measureToggleBtn.textContent = measureOn ? '📏 Measure: On' : '📏 Measure: Off';
+   measureToggleBtn.textContent = measureOn ? '🧭 Route: On' : '🧭 Route: Off';
   }
   map.getContainer().style.cursor = measureOn ? 'crosshair' : '';
 }
 
 // measurement listeners 
-measureToggleBtn?.addEventListener('click', toggleMeasurement);
-measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
-measureClearBtn?.addEventListener('click', clearMeasurement);
+function bindTap(el, handler) {
+  if (!el) return;
 
-exportRouteBtn?.addEventListener('click', exportPlotRoute);
+  let handled = false;
+
+  el.addEventListener('pointerup', (e) => {
+    e.preventDefault();
+    handled = true;
+    handler(e);
+    setTimeout(() => { handled = false; }, 0);
+  });
+
+  el.addEventListener('click', (e) => {
+    if (handled) return;
+    handler(e);
+  });
+}
+
+bindTap(measureToggleBtn, toggleMeasurement);
+bindTap(measureUndoBtn, undoLastMeasurementPoint);
+bindTap(measureClearBtn, clearMeasurement);
+bindTap(exportRouteBtn, exportPlotRoute);
 
 importRouteInput?.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
