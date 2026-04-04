@@ -12,11 +12,17 @@
   // ---------------------------------------------------------------------------
   // Map & Panes & Basemap
   // ---------------------------------------------------------------------------
-  const map = L.map('map', { zoomControl: false }).setView([45.4215, -75.6972], 11);
-  L.control.zoom({ position: 'topright' }).addTo(map);
-  
+ const map = L.map('map', {
+  zoomControl: false,
+  attributionControl: false
+}).setView([45.4215, -75.6972], 11);
+ L.control.zoom({ position: 'topright' }).addTo(map);
+ 
+ // override default Leaflet attribution prefix with our own (kept concise to allow room for OSM + LIO credits)
+ L.control.attribution({ position: 'bottomleft' }).addTo(map);
+
   // April 4, added scale control for better distance context (especially with contours)
-  L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(map);
+  L.control.scale({ position: 'bottomright', metric: true, imperial: false }).addTo(map);
 
   // Pane order: base < imagery < CLUPA
   map.createPane('basePane');
