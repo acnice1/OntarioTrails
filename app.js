@@ -1489,6 +1489,53 @@ function saveMeasurementToStorage() {
   } catch {}
 }
 
+function exportPlotRoute() {
+  if (!measurePoints.length) return;
+
+  const payload = {
+    version: 1,
+    type: 'plot-route',
+    points: measurePoints.map(p => ({
+      lat: +p.lat,
+      lng: +p.lng
+    }))
+  };
+
+  const name = `plot-route_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  downloadText(name, JSON.stringify(payload, null, 2), 'application/json');
+}
+
+async function importPlotRouteFromFile(file) {
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const json = JSON.parse(text);
+
+    const pts = Array.isArray(json?.points)
+      ? json.points.filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+          .map(p => ({ lat: +p.lat, lng: +p.lng }))
+      : [];
+
+    if (!pts.length) {
+      alert('No valid route points found in file.');
+      return;
+    }
+
+    measurePoints = pts;
+    saveMeasurementToStorage();
+    refreshMeasurement();
+
+    if (measurePoints.length) {
+      const bounds = L.latLngBounds(measurePoints.map(p => [p.lat, p.lng]));
+      try { map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 }); } catch {}
+    }
+  } catch (err) {
+    console.warn('Route import failed:', err);
+    alert('Could not import route file.');
+  }
+}
+
 let measureOn = false;
 let measurePoints = loadMeasurementFromStorage();
 let measureMarkers = [];
@@ -1496,6 +1543,8 @@ let measureMarkers = [];
 const measureToggleBtn = document.getElementById('measureToggleBtn');
 const measureUndoBtn   = document.getElementById('measureUndoBtn');
 const measureClearBtn  = document.getElementById('measureClearBtn');
+const exportRouteBtn   = document.getElementById('exportRouteBtn');
+const importRouteInput = document.getElementById('importRouteInput');
 const measureStatus    = document.getElementById('measureStatus');
 
 function formatMeasureDistance(m) {
@@ -1571,6 +1620,15 @@ function toggleMeasurement() {
 measureToggleBtn?.addEventListener('click', toggleMeasurement);
 measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
 measureClearBtn?.addEventListener('click', clearMeasurement);
+
+exportRouteBtn?.addEventListener('click', exportPlotRoute);
+
+importRouteInput?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  await importPlotRouteFromFile(file);
+  e.target.value = '';
+});
+
 
 // Add measurement points only when measurement mode is enabled
 map.on('click', (e) => {
