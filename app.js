@@ -1457,6 +1457,106 @@ btnSave?.addEventListener('click', saveTrackGPX);
 // Init button state (Save disabled until we have >=2 points)
 enableSaveIfReady();
 
+// ---------------------------------------------------------------------------
+// Distance Measurement (temporary, click-to-add, low risk)
+// Added April 4, 2026 
+// ---------------------------------------------------------------------------
+const measureLayer = L.layerGroup().addTo(map);
+let measureLine = L.polyline([], {
+  color: '#1472ff',
+  weight: 3,
+  opacity: 0.9,
+  dashArray: '8,6'
+}).addTo(measureLayer);
+
+let measureOn = false;
+let measurePoints = [];
+let measureMarkers = [];
+
+const measureToggleBtn = document.getElementById('measureToggleBtn');
+const measureClearBtn  = document.getElementById('measureClearBtn');
+const measureStatus    = document.getElementById('measureStatus');
+
+function formatMeasureDistance(m) {
+  if (!Number.isFinite(m) || m <= 0) return '0.00 km';
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`;
+}
+
+function updateMeasureStatus() {
+  let totalM = 0;
+  for (let i = 1; i < measurePoints.length; i++) {
+    totalM += distLL(measurePoints[i - 1], measurePoints[i]);
+  }
+
+  if (measureStatus) {
+    measureStatus.textContent = `${measurePoints.length} point${measurePoints.length === 1 ? '' : 's'} · ${formatMeasureDistance(totalM)}`;
+  }
+}
+
+function refreshMeasurement() {
+  measureLayer.clearLayers();
+
+  measureLine = L.polyline(
+    measurePoints.map(p => [p.lat, p.lng]),
+    {
+      color: '#1472ff',
+      weight: 3,
+      opacity: 0.9,
+      dashArray: '8,6'
+    }
+  ).addTo(measureLayer);
+
+  measureMarkers = measurePoints.map((p, idx) => {
+    const marker = L.circleMarker([p.lat, p.lng], {
+      radius: 5,
+      color: '#1472ff',
+      fillColor: '#1472ff',
+      fillOpacity: 0.95
+    }).addTo(measureLayer);
+
+    marker.bindTooltip(
+      idx === 0 ? 'Start' : `Point ${idx + 1}`,
+      { direction: 'top', offset: [0, -6] }
+    );
+
+    return marker;
+  });
+
+  updateMeasureStatus();
+}
+
+function clearMeasurement() {
+  measurePoints = [];
+  measureMarkers = [];
+  refreshMeasurement();
+}
+
+function toggleMeasurement() {
+  measureOn = !measureOn;
+  if (measureToggleBtn) {
+    measureToggleBtn.textContent = measureOn ? '📏 Measure: On' : '📏 Measure: Off';
+  }
+  map.getContainer().style.cursor = measureOn ? 'crosshair' : '';
+}
+
+measureToggleBtn?.addEventListener('click', toggleMeasurement);
+measureClearBtn?.addEventListener('click', clearMeasurement);
+
+// Add measurement points only when measurement mode is enabled
+map.on('click', (e) => {
+  if (!measureOn) return;
+
+  measurePoints.push({
+    lat: e.latlng.lat,
+    lng: e.latlng.lng
+  });
+
+  refreshMeasurement();
+});
+
+// Initial status
+updateMeasureStatus();
+
 
   // ---------------------------------------------------------------------------
   // Contours (Esri Feature Layer) + Labels + Snap/Identify + Legend sync
