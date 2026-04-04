@@ -354,6 +354,22 @@ const runSearch = async (q, mySeq) => {
   const crosshairEl   = document.getElementById('crosshair');
   const contourHintEl = document.getElementById('contourHint');
 
+    const debugBox = document.getElementById('debugBox');
+
+function dbg(...parts) {
+  const msg = parts.map(p => {
+    try { return typeof p === 'string' ? p : JSON.stringify(p); }
+    catch { return String(p); }
+  }).join(' ');
+
+  console.log('[DBG]', msg);
+
+  if (debugBox) {
+    const line = `${new Date().toLocaleTimeString()} ${msg}`;
+    debugBox.textContent = `${line}\n${debugBox.textContent}`.slice(0, 4000);
+  }
+}
+
   // Panel: stop map/page interaction when touching inside the panel
   if (panel) {
     L.DomEvent.disableClickPropagation(panel);
@@ -1583,6 +1599,13 @@ const exportRouteBtn   = document.getElementById('exportRouteBtn');
 const importRouteInput = document.getElementById('importRouteInput');
 const measureStatus    = document.getElementById('measureStatus');
 
+dbg('Route elements found', {
+  hasToggleBtn: !!measureToggleBtn,
+  hasUndoBtn: !!measureUndoBtn,
+  hasClearBtn: !!measureClearBtn,
+  hasStatus: !!measureStatus
+});
+
 function formatMeasureDistance(m) {
   if (!Number.isFinite(m) || m <= 0) return '0.00 km';
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`;
@@ -1646,24 +1669,50 @@ function undoLastMeasurementPoint() {
 }
 
 function toggleMeasurement() {
-  const c = map.getCenter();
-
-  measurePoints.push({
-    lat: c.lat,
-    lng: c.lng
+  dbg('toggleMeasurement ENTER', {
+    measureOn_before: measureOn,
+    btnText_before: measureToggleBtn?.textContent || ''
   });
 
-  saveMeasurementToStorage();
-  refreshMeasurement();
+  measureOn = !measureOn;
 
   if (measureToggleBtn) {
-    measureToggleBtn.textContent = '🧭 Route: On';
+    measureToggleBtn.textContent = measureOn ? '🧭 Route: On' : '🧭 Route: Off';
   }
-}
 
+  map.getContainer().style.cursor = measureOn ? 'crosshair' : '';
+
+  if (measureOn) {
+    if (measureStatus && measurePoints.length === 0) {
+      measureStatus.textContent = 'Route mode on · tap the map to add points';
+    } else {
+      updateMeasureStatus();
+    }
+  } else {
+    updateMeasureStatus();
+  }
+
+  dbg('toggleMeasurement EXIT', {
+    measureOn_after: measureOn,
+    btnText_after: measureToggleBtn?.textContent || '',
+    status: measureStatus?.textContent || ''
+  });
+}
 // measurement listeners 
 
-measureToggleBtn?.addEventListener('click', toggleMeasurement);
+measureToggleBtn?.addEventListener('click', (e) => {
+  dbg('Route button click fired', {
+    tag: e?.target?.tagName,
+    text: measureToggleBtn?.textContent,
+    measureOn_before: measureOn
+  });
+  toggleMeasurement();
+  dbg('Route button click complete', {
+    text: measureToggleBtn?.textContent,
+    measureOn_after: measureOn
+  });
+});
+
 measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
 measureClearBtn?.addEventListener('click', clearMeasurement);
 exportRouteBtn?.addEventListener('click', exportPlotRoute);
@@ -1677,11 +1726,25 @@ importRouteInput?.addEventListener('change', async (e) => {
 
 // Add measurement points only when measurement mode is enabled
 map.on('click', (e) => {
-  if (!measureOn) return;
+  dbg('map click', {
+    lat: +e.latlng.lat.toFixed(5),
+    lng: +e.latlng.lng.toFixed(5),
+    measureOn,
+    points_before: measurePoints.length
+  });
+
+  if (!measureOn) {
+    dbg('map click ignored because Route is OFF');
+    return;
+  }
 
   measurePoints.push({
     lat: e.latlng.lat,
     lng: e.latlng.lng
+  });
+
+  dbg('route point added', {
+    points_after: measurePoints.length
   });
 
   saveMeasurementToStorage();
@@ -1713,6 +1776,8 @@ refreshMeasurement();
     if (maxEl) maxEl.textContent = ELEV_DOMAIN_MAX;
     if (midEl) midEl.textContent = Math.round((ELEV_DOMAIN_MIN + ELEV_DOMAIN_MAX) / 2);
   })();
+
+
 
   // Haversine — meters between two lat/lngs (avoid name clash)
   function metersBetweenHaversine(a, b) {
