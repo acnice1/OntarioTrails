@@ -354,35 +354,6 @@ const runSearch = async (q, mySeq) => {
   const crosshairEl   = document.getElementById('crosshair');
   const contourHintEl = document.getElementById('contourHint');
 
- const debugBox = document.getElementById('debugBox');
-
-function dbg(...parts) {
-  const msg = parts.map(p => {
-    try { return typeof p === 'string' ? p : JSON.stringify(p); }
-    catch { return String(p); }
-  }).join(' ');
-
-  console.log('[DBG]', msg);
-
-  if (debugBox) {
-    const line = `${new Date().toLocaleTimeString()} ${msg}`;
-    debugBox.textContent = `${line}\n${debugBox.textContent}`.slice(0, 5000);
-  }
-}
-
-window.addEventListener('error', (e) => {
-  dbg('WINDOW ERROR', {
-    message: e.message,
-    source: e.filename,
-    line: e.lineno,
-    col: e.colno
-  });
-});
-
-window.addEventListener('unhandledrejection', (e) => {
-  dbg('PROMISE ERROR', String(e.reason));
-});
-
   // Panel: stop map/page interaction when touching inside the panel
   if (panel) {
     L.DomEvent.disableClickPropagation(panel);
@@ -1612,13 +1583,6 @@ const exportRouteBtn   = document.getElementById('exportRouteBtn');
 const importRouteInput = document.getElementById('importRouteInput');
 const measureStatus    = document.getElementById('measureStatus');
 
-dbg('Route elements found', {
-  hasToggleBtn: !!measureToggleBtn,
-  hasUndoBtn: !!measureUndoBtn,
-  hasClearBtn: !!measureClearBtn,
-  hasStatus: !!measureStatus
-});
-
 function formatMeasureDistance(m) {
   if (!Number.isFinite(m) || m <= 0) return '0.00 km';
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`;
@@ -1682,11 +1646,6 @@ function undoLastMeasurementPoint() {
 }
 
 function toggleMeasurement() {
-  dbg('toggleMeasurement ENTER', {
-    measureOn_before: measureOn,
-    btnText_before: measureToggleBtn?.textContent || ''
-  });
-
   measureOn = !measureOn;
 
   if (measureToggleBtn) {
@@ -1694,6 +1653,15 @@ function toggleMeasurement() {
   }
 
   map.getContainer().style.cursor = measureOn ? 'crosshair' : '';
+
+  // Force crosshair visible while routing, but restore normal checkbox behavior when off
+  if (crosshairEl) {
+    if (measureOn) {
+      crosshairEl.style.display = 'block';
+    } else if (showCrosshair) {
+      crosshairEl.style.display = showCrosshair.checked ? 'block' : 'none';
+    }
+  }
 
   if (measureOn) {
     if (measureStatus && measurePoints.length === 0) {
@@ -1704,28 +1672,10 @@ function toggleMeasurement() {
   } else {
     updateMeasureStatus();
   }
-
-  dbg('toggleMeasurement EXIT', {
-    measureOn_after: measureOn,
-    btnText_after: measureToggleBtn?.textContent || '',
-    status: measureStatus?.textContent || ''
-  });
 }
 // measurement listeners 
 
-measureToggleBtn?.addEventListener('click', (e) => {
-  dbg('Route button click fired', {
-    tag: e?.target?.tagName,
-    text: measureToggleBtn?.textContent,
-    measureOn_before: measureOn
-  });
-  toggleMeasurement();
-  dbg('Route button click complete', {
-    text: measureToggleBtn?.textContent,
-    measureOn_after: measureOn
-  });
-});
-
+measureToggleBtn?.addEventListener('click', toggleMeasurement);
 measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
 measureClearBtn?.addEventListener('click', clearMeasurement);
 exportRouteBtn?.addEventListener('click', exportPlotRoute);
@@ -1739,25 +1689,11 @@ importRouteInput?.addEventListener('change', async (e) => {
 
 // Add measurement points only when measurement mode is enabled
 map.on('click', (e) => {
-  dbg('map click', {
-    lat: +e.latlng.lat.toFixed(5),
-    lng: +e.latlng.lng.toFixed(5),
-    measureOn,
-    points_before: measurePoints.length
-  });
-
-  if (!measureOn) {
-    dbg('map click ignored because Route is OFF');
-    return;
-  }
+  if (!measureOn) return;
 
   measurePoints.push({
     lat: e.latlng.lat,
     lng: e.latlng.lng
-  });
-
-  dbg('route point added', {
-    points_after: measurePoints.length
   });
 
   saveMeasurementToStorage();
@@ -1789,8 +1725,6 @@ refreshMeasurement();
     if (maxEl) maxEl.textContent = ELEV_DOMAIN_MAX;
     if (midEl) midEl.textContent = Math.round((ELEV_DOMAIN_MIN + ELEV_DOMAIN_MAX) / 2);
   })();
-
-
 
   // Haversine — meters between two lat/lngs (avoid name clash)
   function metersBetweenHaversine(a, b) {
