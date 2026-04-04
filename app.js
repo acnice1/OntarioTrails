@@ -432,7 +432,12 @@ const runSearch = async (q, mySeq) => {
   // ---------------------------------------------------------------------------
   // Trails (OTN.geojson) + toggle
   // ---------------------------------------------------------------------------
-const trailsStyle = { color: '#1472ff', weight: 3, opacity: 0.9 };
+const trailsStyle = {
+  color: '#1472ff',
+  weight: 6,
+  opacity: 0.8,
+  interactive: false
+};
 
 function trailPopupContent(p = {}) {
   const val = (v) => (v == null || v === '' ? '—' : String(v));
@@ -464,12 +469,27 @@ function trailPopupContent(p = {}) {
     </div>`;
 }
 
-const trailsLayer = L.geoJSON(null, {
-  style: trailsStyle,
+const trailsVisualLayer = L.geoJSON(null, {
+  style: trailsStyle
+});
+
+const trailsHitLayer = L.geoJSON(null, {
+  style: {
+    color: '#1472ff',
+    weight: 18,
+    opacity: 0.01
+  },
   onEachFeature: (feat, layer) => {
     layer.bindPopup(trailPopupContent(feat.properties || {}), { maxWidth: 340 });
+
+    layer.on('click', (e) => {
+      if (e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
+      layer.openPopup(e.latlng);
+    });
   }
 });
+
+const trailsLayer = L.layerGroup();
 
   (async function loadTrails() {
     try {
@@ -479,8 +499,12 @@ const trailsLayer = L.geoJSON(null, {
         '/OTN.geojson',
         '/data/OTN.geojson'
       ]);
-      trailsLayer.addData(data);
-      if (showTrails?.checked) trailsLayer.addTo(map);
+      trailsVisualLayer.addData(data);
+trailsHitLayer.addData(data);
+trailsLayer.addLayer(trailsVisualLayer);
+trailsLayer.addLayer(trailsHitLayer);
+
+if (showTrails?.checked) trailsLayer.addTo(map);
     } catch (err) {
       console.warn('Trails not loaded (OTN.geojson).', err.message);
     }
