@@ -1279,9 +1279,10 @@ pins.forEach((p, idx) => {
 };
 
 // First render (if pins already loaded at boot)
-renderPinList();
+refreshPins();
 
-  // ---------------------------------------------------------------------------
+  // -
+  // --------------------------------------------------------------------------
   // Locate / Follow / Reset View
   // ---------------------------------------------------------------------------
   const locateBtn    = document.getElementById('locateBtn');
