@@ -1647,12 +1647,32 @@ function undoLastMeasurementPoint() {
 
 function toggleMeasurement() {
   measureOn = !measureOn;
-  if (measureToggleBtn) {
-   measureToggleBtn.textContent = measureOn ? '🧭 Route: On' : '🧭 Route: Off';
-  }
-  map.getContainer().style.cursor = measureOn ? 'crosshair' : '';
-}
 
+  if (measureToggleBtn) {
+    measureToggleBtn.textContent = measureOn ? '🧭 Route: On' : '🧭 Route: Off';
+  }
+
+  map.getContainer().style.cursor = measureOn ? 'crosshair' : '';
+
+  // Force crosshair visible while routing, but restore normal checkbox behavior when off
+  if (crosshairEl) {
+    if (measureOn) {
+      crosshairEl.style.display = 'block';
+    } else if (showCrosshair) {
+      crosshairEl.style.display = showCrosshair.checked ? 'block' : 'none';
+    }
+  }
+
+  if (measureOn) {
+    if (measureStatus && measurePoints.length === 0) {
+      measureStatus.textContent = 'Route mode on · tap the map to add points';
+    } else {
+      updateMeasureStatus();
+    }
+  } else {
+    updateMeasureStatus();
+  }
+}
 // measurement listeners 
 
 measureToggleBtn?.addEventListener('click', toggleMeasurement);
