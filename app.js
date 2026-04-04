@@ -354,7 +354,7 @@ const runSearch = async (q, mySeq) => {
   const crosshairEl   = document.getElementById('crosshair');
   const contourHintEl = document.getElementById('contourHint');
 
-    const debugBox = document.getElementById('debugBox');
+ const debugBox = document.getElementById('debugBox');
 
 function dbg(...parts) {
   const msg = parts.map(p => {
@@ -366,9 +366,22 @@ function dbg(...parts) {
 
   if (debugBox) {
     const line = `${new Date().toLocaleTimeString()} ${msg}`;
-    debugBox.textContent = `${line}\n${debugBox.textContent}`.slice(0, 4000);
+    debugBox.textContent = `${line}\n${debugBox.textContent}`.slice(0, 5000);
   }
 }
+
+window.addEventListener('error', (e) => {
+  dbg('WINDOW ERROR', {
+    message: e.message,
+    source: e.filename,
+    line: e.lineno,
+    col: e.colno
+  });
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  dbg('PROMISE ERROR', String(e.reason));
+});
 
   // Panel: stop map/page interaction when touching inside the panel
   if (panel) {
