@@ -1654,28 +1654,11 @@ function toggleMeasurement() {
 }
 
 // measurement listeners 
-function bindTap(el, handler) {
-  if (!el) return;
 
-  let handled = false;
-
-  el.addEventListener('pointerup', (e) => {
-    e.preventDefault();
-    handled = true;
-    handler(e);
-    setTimeout(() => { handled = false; }, 0);
-  });
-
-  el.addEventListener('click', (e) => {
-    if (handled) return;
-    handler(e);
-  });
-}
-
-bindTap(measureToggleBtn, toggleMeasurement);
-bindTap(measureUndoBtn, undoLastMeasurementPoint);
-bindTap(measureClearBtn, clearMeasurement);
-bindTap(exportRouteBtn, exportPlotRoute);
+measureToggleBtn?.addEventListener('click', toggleMeasurement);
+measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
+measureClearBtn?.addEventListener('click', clearMeasurement);
+exportRouteBtn?.addEventListener('click', exportPlotRoute);
 
 importRouteInput?.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
