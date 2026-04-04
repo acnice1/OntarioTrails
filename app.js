@@ -1474,6 +1474,7 @@ let measurePoints = [];
 let measureMarkers = [];
 
 const measureToggleBtn = document.getElementById('measureToggleBtn');
+const measureUndoBtn   = document.getElementById('measureUndoBtn');
 const measureClearBtn  = document.getElementById('measureClearBtn');
 const measureStatus    = document.getElementById('measureStatus');
 
@@ -1531,6 +1532,12 @@ function clearMeasurement() {
   refreshMeasurement();
 }
 
+function undoLastMeasurementPoint() {
+  if (!measurePoints.length) return;
+  measurePoints.pop();
+  refreshMeasurement();
+}
+
 function toggleMeasurement() {
   measureOn = !measureOn;
   if (measureToggleBtn) {
@@ -1540,6 +1547,7 @@ function toggleMeasurement() {
 }
 
 measureToggleBtn?.addEventListener('click', toggleMeasurement);
+measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
 measureClearBtn?.addEventListener('click', clearMeasurement);
 
 // Add measurement points only when measurement mode is enabled
