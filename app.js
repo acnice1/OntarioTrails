@@ -432,8 +432,44 @@ const runSearch = async (q, mySeq) => {
   // ---------------------------------------------------------------------------
   // Trails (OTN.geojson) + toggle
   // ---------------------------------------------------------------------------
-  const trailsStyle = { color: '#1472ff', weight: 3, opacity: 0.9 };
-  const trailsLayer = L.geoJSON(null, { style: trailsStyle });
+const trailsStyle = { color: '#1472ff', weight: 3, opacity: 0.9 };
+
+function trailPopupContent(p = {}) {
+  const val = (v) => (v == null || v === '' ? '—' : String(v));
+  const lengthKm = Number.isFinite(+p.TRAIL_LENGTH_KM)
+    ? `${(+p.TRAIL_LENGTH_KM).toFixed(1)} km`
+    : '—';
+
+  const website = p.TRAIL_ASSOCIATION_WEBSITE
+    ? (() => {
+        const raw = String(p.TRAIL_ASSOCIATION_WEBSITE).trim();
+        const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${raw}</a>`;
+      })()
+    : '—';
+
+  return `
+    <div style="min-width:240px">
+      <div style="font-weight:700;margin-bottom:6px">${val(p.TRAIL_NAME)}</div>
+      <div><b>Use:</b> ${val(p.TRAIL_USE)}</div>
+      <div><b>Length:</b> ${lengthKm}</div>
+      <div><b>On-road:</b> ${val(p.ON_ROAD_FLG)}</div>
+      <div><b>Managed by:</b> ${val(p.TRAIL_ASSOCIATION)}</div>
+      <div><b>Website:</b> ${website}</div>
+      ${
+        p.DESCRIPTION
+          ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e8edf3">${val(p.DESCRIPTION)}</div>`
+          : ''
+      }
+    </div>`;
+}
+
+const trailsLayer = L.geoJSON(null, {
+  style: trailsStyle,
+  onEachFeature: (feat, layer) => {
+    layer.bindPopup(trailPopupContent(feat.properties || {}), { maxWidth: 340 });
+  }
+});
 
   (async function loadTrails() {
     try {
@@ -1617,6 +1653,7 @@ function toggleMeasurement() {
   map.getContainer().style.cursor = measureOn ? 'crosshair' : '';
 }
 
+// measurement listeners 
 measureToggleBtn?.addEventListener('click', toggleMeasurement);
 measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
 measureClearBtn?.addEventListener('click', clearMeasurement);
