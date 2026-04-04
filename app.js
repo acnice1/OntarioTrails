@@ -1469,8 +1469,28 @@ let measureLine = L.polyline([], {
   dashArray: '8,6'
 }).addTo(measureLayer);
 
+const MEASURE_KEY = 'ontarioTrails.measure.v2';
+
+function loadMeasurementFromStorage() {
+  try {
+    const raw = localStorage.getItem(MEASURE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr)
+      ? arr.filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMeasurementToStorage() {
+  try {
+    localStorage.setItem(MEASURE_KEY, JSON.stringify(measurePoints));
+  } catch {}
+}
+
 let measureOn = false;
-let measurePoints = [];
+let measurePoints = loadMeasurementFromStorage();
 let measureMarkers = [];
 
 const measureToggleBtn = document.getElementById('measureToggleBtn');
@@ -1500,7 +1520,7 @@ function refreshMeasurement() {
   measureLine = L.polyline(
     measurePoints.map(p => [p.lat, p.lng]),
     {
-      color: '#1472ff',
+      color: '#ff7a00',
       weight: 3,
       opacity: 0.9,
       dashArray: '8,6'
@@ -1510,8 +1530,8 @@ function refreshMeasurement() {
   measureMarkers = measurePoints.map((p, idx) => {
     const marker = L.circleMarker([p.lat, p.lng], {
       radius: 5,
-      color: '#1472ff',
-      fillColor: '#1472ff',
+      color: '#CC5500',
+      fillColor: '#ff7a00',
       fillOpacity: 0.95
     }).addTo(measureLayer);
 
@@ -1529,12 +1549,14 @@ function refreshMeasurement() {
 function clearMeasurement() {
   measurePoints = [];
   measureMarkers = [];
+  saveMeasurementToStorage();
   refreshMeasurement();
 }
 
 function undoLastMeasurementPoint() {
   if (!measurePoints.length) return;
   measurePoints.pop();
+  saveMeasurementToStorage();
   refreshMeasurement();
 }
 
@@ -1559,11 +1581,13 @@ map.on('click', (e) => {
     lng: e.latlng.lng
   });
 
+  saveMeasurementToStorage();
   refreshMeasurement();
 });
 
 // Initial status
-updateMeasureStatus();
+refreshMeasurement();
+
 
 
   // ---------------------------------------------------------------------------
