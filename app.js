@@ -1669,6 +1669,19 @@ let measureLine = L.polyline([], {
 let serverRoutes = [];
 let importedRoutes = [];
 
+const SERVER_ROUTE_STYLES = [
+  { color: '#8b5cf6', dashArray: null },        // purple solid
+  { color: '#10b981', dashArray: '10 6' },      // green dashed
+  { color: '#ec4899', dashArray: '2 8' },       // pink dotted
+  { color: '#14b8a6', dashArray: '14 6 2 6' },  // teal mixed
+  { color: '#ef4444', dashArray: '6 6' },       // red dashed
+  { color: '#6b7280', dashArray: '1 8' }        // slate dotted
+];
+
+function getServerRouteStyle(idx) {
+  return SERVER_ROUTE_STYLES[idx % SERVER_ROUTE_STYLES.length];
+}
+
 const MEASURE_KEY = 'ontarioTrails.measure.v2';
 
 function loadMeasurementFromStorage() {
@@ -1823,37 +1836,44 @@ function renderServerRoutes() {
     const pts = Array.isArray(route?.points) ? route.points : [];
     if (!pts.length) return;
 
-    const routeColor = getServerRouteColor(idx);
+    const latlngs = pts.map(p => [p.lat, p.lng]);
+    const style = getServerRouteStyle(idx);
 
-    const line = L.polyline(
-      pts.map(p => [p.lat, p.lng]),
-      {
-        color: routeColor,
-        weight: 4,
-        opacity: 0.85
-      }
-    ).addTo(serverRoutesLayer);
+    // White casing underneath to make overlaps stand out more clearly
+    L.polyline(latlngs, {
+      color: '#ffffff',
+      weight: 5,
+      opacity: 0.85
+    }).addTo(serverRoutesLayer);
 
-line.bindPopup(
-  `<b>${esc(route.name || `Saved Route ${idx + 1}`)}</b><br>` +
-  `${pts.length} point(s)<br>` +
-  `Length: ${formatRouteLengthKm(route.lengthKm)}`
-);
+    // Main colored route on top
+    const line = L.polyline(latlngs, {
+      color: style.color,
+      weight: 4,
+      opacity: 0.95,
+      dashArray: style.dashArray || null
+    }).addTo(serverRoutesLayer);
 
-pts.forEach((p, pIdx) => {
-  L.circleMarker([p.lat, p.lng], {
-    radius: pIdx === 0 ? 5 : 4,
-    color: routeColor,
-    fillColor: pIdx === 0 ? '#ffffff' : routeColor,
-    fillOpacity: 1,
-    weight: 2
-  })
-  .bindTooltip(pIdx === 0 ? 'Start' : `Point ${pIdx + 1}`, {
-    direction: 'top',
-    offset: [0, -6]
-  })
-  .addTo(serverRoutesLayer);
-});
+    line.bindPopup(
+      `<b>${esc(route.name || `Saved Route ${idx + 1}`)}</b><br>` +
+      `${pts.length} point(s)` +
+      (Number.isFinite(route?.lengthKm) ? `<br>Length: ${route.lengthKm.toFixed(1)} km` : '')
+    );
+
+    pts.forEach((p, pIdx) => {
+      L.circleMarker([p.lat, p.lng], {
+        radius: pIdx === 0 ? 5 : 4,
+        color: style.color,
+        fillColor: pIdx === 0 ? '#ffffff' : style.color,
+        fillOpacity: 1,
+        weight: 2
+      })
+      .bindTooltip(pIdx === 0 ? 'Start' : `Point ${pIdx + 1}`, {
+        direction: 'top',
+        offset: [0, -6]
+      })
+      .addTo(serverRoutesLayer);
+    });
   });
 }
 
