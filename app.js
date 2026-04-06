@@ -106,16 +106,25 @@ async function initServerRoutes() {
         ? json.routes
         : [];
 
-    serverRoutes = routes
-      .map((route, idx) => ({
-        name: route?.name || `Saved Route ${idx + 1}`,
-        points: Array.isArray(route?.points)
-          ? route.points
-              .filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
-              .map(p => ({ lat: +p.lat, lng: +p.lng }))
-          : []
-      }))
-      .filter(route => route.points.length > 0);
+serverRoutes = routes
+  .map((route, idx) => {
+    const points = Array.isArray(route?.points)
+      ? route.points
+          .filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+          .map(p => ({ lat: +p.lat, lng: +p.lng }))
+      : [];
+
+    const storedLengthKm = Number(route?.lengthKm);
+
+    return {
+      name: route?.name || `Saved Route ${idx + 1}`,
+      version: Number.isFinite(+route?.version) ? +route.version : 1,
+      type: route?.type || 'plot-route',
+      lengthKm: Number.isFinite(storedLengthKm) ? storedLengthKm : routeDistanceKm(points),
+      points
+    };
+  })
+  .filter(route => route.points.length > 0);
 
     renderServerRoutes();
 if (showServerRoutesCk?.checked) serverRoutesLayer.addTo(map);
@@ -1680,12 +1689,36 @@ function saveMeasurementToStorage() {
   } catch {}
 }
 
+function segmentDistanceMeters(a, b) {
+  if (!a || !b) return 0;
+  return map.distance([a.lat, a.lng], [b.lat, b.lng]);
+}
+
+function routeDistanceMeters(points = []) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += segmentDistanceMeters(points[i - 1], points[i]);
+  }
+  return total;
+}
+
+function routeDistanceKm(points = []) {
+  return routeDistanceMeters(points) / 1000;
+}
+
+function formatRouteLengthKm(lengthKm) {
+  if (!Number.isFinite(lengthKm)) return '—';
+  return `${lengthKm.toFixed(1)} km`;
+}
+
+
 function exportPlotRoute() {
   if (!measurePoints.length) return;
 
   const payload = {
     version: 1,
     type: 'plot-route',
+    lengthKm: +routeDistanceKm(measurePoints).toFixed(2),
     points: measurePoints.map(p => ({
       lat: +p.lat,
       lng: +p.lng
@@ -1695,6 +1728,7 @@ function exportPlotRoute() {
   const name = `plot-route_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
   downloadText(name, JSON.stringify(payload, null, 2), 'application/json');
 }
+
 
 async function importPlotRouteFromFile(file) {
   if (!file) return;
@@ -1714,10 +1748,15 @@ async function importPlotRouteFromFile(file) {
       return;
     }
 
-    importedRoutes.push({
-      name: file.name.replace(/\.[^.]+$/, ''),
-      points: pts
-    });
+const storedLengthKm = Number(json?.lengthKm);
+
+importedRoutes.push({
+  name: file.name.replace(/\.[^.]+$/, ''),
+  version: Number.isFinite(+json?.version) ? +json.version : 1,
+  type: json?.type || 'plot-route',
+  lengthKm: Number.isFinite(storedLengthKm) ? storedLengthKm : routeDistanceKm(pts),
+  points: pts
+});
 
     renderImportedRoutes();
    
@@ -1795,9 +1834,11 @@ function renderServerRoutes() {
       }
     ).addTo(serverRoutesLayer);
 
-    line.bindPopup(
-      `<b>${esc(route.name || `Saved Route ${idx + 1}`)}</b><br>${pts.length} point(s)`
-    );
+line.bindPopup(
+  `<b>${esc(route.name || `Saved Route ${idx + 1}`)}</b><br>` +
+  `${pts.length} point(s)<br>` +
+  `Length: ${formatRouteLengthKm(route.lengthKm)}`
+);
 
 pts.forEach((p, pIdx) => {
   L.circleMarker([p.lat, p.lng], {
@@ -1832,11 +1873,19 @@ function renderImportedRoutes() {
       }
     ).addTo(importedRoutesLayer);
 
-    if (route.name) {
-      line.bindPopup(`<b>${esc(route.name)}</b><br>${pts.length} point(s)`);
-    } else {
-      line.bindPopup(`<b>Imported Route ${idx + 1}</b><br>${pts.length} point(s)`);
-    }
+if (route.name) {
+  line.bindPopup(
+    `<b>${esc(route.name)}</b><br>` +
+    `${pts.length} point(s)<br>` +
+    `Length: ${formatRouteLengthKm(route.lengthKm)}`
+  );
+} else {
+  line.bindPopup(
+    `<b>Imported Route ${idx + 1}</b><br>` +
+    `${pts.length} point(s)<br>` +
+    `Length: ${formatRouteLengthKm(route.lengthKm)}`
+  );
+}
 
     pts.forEach((p, pIdx) => {
       L.circleMarker([p.lat, p.lng], {
