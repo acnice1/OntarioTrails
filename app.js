@@ -88,6 +88,44 @@ const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     throw new Error(msg);
   }
 
+const SERVER_ROUTES_URL = './data/routes/routes.json';
+
+async function loadServerRoutes() {
+  const res = await fetch(SERVER_ROUTES_URL, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Routes HTTP ${res.status}`);
+  return await res.json();
+}
+
+async function initServerRoutes() {
+  try {
+    const json = await loadServerRoutes();
+
+    const routes = Array.isArray(json)
+      ? json
+      : Array.isArray(json?.routes)
+        ? json.routes
+        : [];
+
+    serverRoutes = routes
+      .map((route, idx) => ({
+        name: route?.name || `Saved Route ${idx + 1}`,
+        points: Array.isArray(route?.points)
+          ? route.points
+              .filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+              .map(p => ({ lat: +p.lat, lng: +p.lng }))
+          : []
+      }))
+      .filter(route => route.points.length > 0);
+
+    renderServerRoutes();
+if (showServerRoutesCk?.checked) serverRoutesLayer.addTo(map);
+else map.removeLayer(serverRoutesLayer);
+
+  } catch (err) {
+    console.warn('Saved routes not loaded:', err);
+    if (showServerRoutesCk) showServerRoutesCk.checked = false;
+  }
+}
 
   // ---------------------------------------------------------------------------
   // Geocoder in Panel (Ontario/Quebec-bounded Nominatim wrapper)
@@ -100,9 +138,15 @@ const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
   let searchSeq = 0;               // increments each query to ignore stale results
   let typingSeq = 0;               // tracks the latest keystroke
-  const debouncer = (fn, wait=250) => {
-    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+
+  // Simple debouncer to limit how often a function can run (used for live search)
+  const debouncer = (fn, wait = 250) => {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
   };
+};
 
 
   (function initPanelSearch(){
@@ -346,6 +390,7 @@ const runSearch = async (q, mySeq) => {
   const showTrails    = document.getElementById('showTrails'); // OTN trails (blue)
   const showTrailsOSM = document.getElementById('showTrailsOSM'); // OSM trails (orange)
   const showPinsCk    = document.getElementById('showPins');
+  const showServerRoutesCk = document.getElementById('showServerRoutes');
   const showCrosshair = document.getElementById('showCrosshair');
   const showStocked   = document.getElementById('showStocked');
   const showAccess    = document.getElementById('showAccess');
@@ -418,6 +463,7 @@ const runSearch = async (q, mySeq) => {
   })();
 
 
+
   showBaseCk?.addEventListener('change', () => {
     showBaseCk.checked ? base.addTo(map) : map.removeLayer(base);
   });
@@ -428,6 +474,7 @@ const runSearch = async (q, mySeq) => {
   }
   updateCrosshair();
   showCrosshair?.addEventListener('change', updateCrosshair);
+
 
 
   // ---------------------------------------------------------------------------
@@ -1556,6 +1603,7 @@ function addTrackPoint(pt){
   enableSaveIfReady();
 }
 
+
 // Called by geolocation watcher (see step #1)
 function onGeoPosition(pos){
   if (!recording) return;
@@ -1607,13 +1655,19 @@ enableSaveIfReady();
 // Distance Measurement (temporary, click-to-add, low risk)
 // Added April 4, 2026 
 // ---------------------------------------------------------------------------
-const measureLayer = L.layerGroup().addTo(map);
+const measureLayer = L.layerGroup().addTo(map);       // editable route
+const serverRoutesLayer = L.layerGroup();  // auto-loaded routes
+const importedRoutesLayer = L.layerGroup().addTo(map); // optional uploaded routes
+
 let measureLine = L.polyline([], {
   color: '#1472ff',
   weight: 3,
   opacity: 0.9,
   dashArray: '8,6'
 }).addTo(measureLayer);
+
+let serverRoutes = [];
+let importedRoutes = [];
 
 const MEASURE_KEY = 'ontarioTrails.measure.v2';
 
@@ -1659,7 +1713,8 @@ async function importPlotRouteFromFile(file) {
     const json = JSON.parse(text);
 
     const pts = Array.isArray(json?.points)
-      ? json.points.filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+      ? json.points
+          .filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
           .map(p => ({ lat: +p.lat, lng: +p.lng }))
       : [];
 
@@ -1668,14 +1723,16 @@ async function importPlotRouteFromFile(file) {
       return;
     }
 
-    measurePoints = pts;
-    saveMeasurementToStorage();
-    refreshMeasurement();
+    importedRoutes.push({
+      name: file.name.replace(/\.[^.]+$/, ''),
+      points: pts
+    });
 
-    if (measurePoints.length) {
-      const bounds = L.latLngBounds(measurePoints.map(p => [p.lat, p.lng]));
-      try { map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 }); } catch {}
-    }
+    renderImportedRoutes();
+   
+
+    const bounds = routeBoundsFromPoints(pts);
+    try { map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 }); } catch {}
   } catch (err) {
     console.warn('Route import failed:', err);
     alert('Could not import route file.');
@@ -1707,6 +1764,86 @@ function updateMeasureStatus() {
   if (measureStatus) {
     measureStatus.textContent = `${measurePoints.length} point${measurePoints.length === 1 ? '' : 's'} · ${formatMeasureDistance(totalM)}`;
   }
+}
+
+// Redraw the route line and point markers based on measurePoints
+function routeBoundsFromPoints(points) {
+  return L.latLngBounds(points.map(p => [p.lat, p.lng]));
+}
+
+
+function renderServerRoutes() {
+  serverRoutesLayer.clearLayers();
+
+  serverRoutes.forEach((route, idx) => {
+    const pts = Array.isArray(route?.points) ? route.points : [];
+    if (!pts.length) return;
+
+    const line = L.polyline(
+      pts.map(p => [p.lat, p.lng]),
+      {
+        color: '#2563eb',
+        weight: 4,
+        opacity: 0.8
+      }
+    ).addTo(serverRoutesLayer);
+
+    line.bindPopup(
+      `<b>${esc(route.name || `Saved Route ${idx + 1}`)}</b><br>${pts.length} point(s)`
+    );
+
+    pts.forEach((p, pIdx) => {
+      L.circleMarker([p.lat, p.lng], {
+        radius: 4,
+        color: '#1d4ed8',
+        fillColor: '#2563eb',
+        fillOpacity: 0.9
+      })
+      .bindTooltip(pIdx === 0 ? 'Start' : `Point ${pIdx + 1}`, {
+        direction: 'top',
+        offset: [0, -6]
+      })
+      .addTo(serverRoutesLayer);
+    });
+  });
+}
+
+function renderImportedRoutes() {
+  importedRoutesLayer.clearLayers();
+
+  importedRoutes.forEach((route, idx) => {
+    const pts = Array.isArray(route?.points) ? route.points : [];
+    if (!pts.length) return;
+
+    const line = L.polyline(
+      pts.map(p => [p.lat, p.lng]),
+      {
+        color: '#8b5cf6',
+        weight: 4,
+        opacity: 0.85
+      }
+    ).addTo(importedRoutesLayer);
+
+    if (route.name) {
+      line.bindPopup(`<b>${esc(route.name)}</b><br>${pts.length} point(s)`);
+    } else {
+      line.bindPopup(`<b>Imported Route ${idx + 1}</b><br>${pts.length} point(s)`);
+    }
+
+    pts.forEach((p, pIdx) => {
+      L.circleMarker([p.lat, p.lng], {
+        radius: 4,
+        color: '#6d28d9',
+        fillColor: '#8b5cf6',
+        fillOpacity: 0.9
+      })
+      .bindTooltip(pIdx === 0 ? 'Start' : `Point ${pIdx + 1}`, {
+        direction: 'top',
+        offset: [0, -6]
+      })
+      .addTo(importedRoutesLayer);
+    });
+  });
 }
 
 function refreshMeasurement() {
@@ -2082,6 +2219,10 @@ refreshMeasurement();
 
   restoreCheckbox(showBaseCk, (on) => { on ? base.addTo(map) : map.removeLayer(base); });
 
+  restoreCheckbox(showServerRoutesCk, (on) => {
+  on ? serverRoutesLayer.addTo(map) : map.removeLayer(serverRoutesLayer);
+});
+
   restoreCheckbox(showCrosshair, () => updateCrosshair());
 
   restoreCheckbox(showImagery, (on) => { on ? imagery.addTo(map) : map.removeLayer(imagery); });
@@ -2174,6 +2315,14 @@ if (showCLUPA) restoreCheckbox(showCLUPA, (on) => setClupaAll(on));
   updateContourVisibility(); // initial
   toggleAccess();           // initial
   toggleStocked();          // initial
+  initServerRoutes();       // initial (also sets pins visibility based on checkbox)
   showPinsCk?.addEventListener('change', () => {
     showPinsCk.checked ? pinsLayer.addTo(map) : map.removeLayer(pinsLayer);
+    
   });
+
+showServerRoutesCk?.addEventListener('change', () => {
+  showServerRoutesCk.checked
+    ? serverRoutesLayer.addTo(map)
+    : map.removeLayer(serverRoutesLayer);
+});
