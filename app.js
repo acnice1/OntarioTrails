@@ -542,9 +542,7 @@ const trailsLayer = L.layerGroup();
   (async function loadTrails() {
     try {
       const data = await fetchFirstJSON([
-        './OTN.geojson',
         './data/OTN.geojson',
-        '/OTN.geojson',
         '/data/OTN.geojson'
       ]);
       trailsVisualLayer.addData(data);
@@ -617,9 +615,7 @@ async function ensureTrailsOSMLoaded() {
 
   trailsOSMLoading = (async () => {
     const data = await fetchFirstJSON([
-      './OSM_paths.geojson',
       './data/OSM_paths.geojson',
-      '/OSM_paths.geojson',
       '/data/OSM_paths.geojson'
     ]);
     trailsOSMLayer.addData(data);
@@ -881,9 +877,7 @@ showTrailsOSM?.addEventListener('change', async () => {
     if (stockedLoaded) return;
     try {
       const gj = await fetchFirstJSON([
-        './Fish_Stocking_Data.geojson',
         './data/Fish_Stocking_Data.geojson',
-        '/Fish_Stocking_Data.geojson',
         '/data/Fish_Stocking_Data.geojson'
       ]);
       stockedLayer.addData(gj);
@@ -937,10 +931,7 @@ showTrailsOSM?.addEventListener('change', async () => {
     if (accessLoaded) return;
     try {
       const gj = await fetchFirstJSON([
-        './Fishing_Access_Point.geojson',
-        './data/Fishing_Access_Point.geojson',
-        '/Fishing_Access_Point.geojson',
-        '/data/Fishing_Access_Point.geojson'
+        './data/Fishing_Access_Point.geojson'
       ]);
       accessLayer.addData(gj);
       accessLoaded = true;
