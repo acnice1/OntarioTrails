@@ -305,3 +305,7 @@ input[type="range"]::-moz-range-thumb{
 
 
 .pin-list .pin-emoji { display:inline-flex; align-items:center; justify-content:center; width:1.4rem; }
+
+.legend-trail-osm {
+  background: #8b5a2b;
+}

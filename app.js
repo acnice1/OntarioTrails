@@ -31,12 +31,12 @@
   map.createPane('imageryPane');
   map.getPane('imageryPane').style.zIndex = 300; // above base
 
-  // OSM basemap
-  const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 22,
-    attribution: '&copy; OpenStreetMap',
-    pane: 'basePane'
-  }).addTo(map);
+// OSM basemap
+const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 22,
+  attribution: '&copy; OpenStreetMap',
+  pane: 'basePane'
+}).addTo(map);
 
   // CLUPA pane (above imagery/contours)
   map.createPane('clupaPane');
@@ -343,7 +343,8 @@ const runSearch = async (q, mySeq) => {
   const closeBtn = document.getElementById('closePanelBtn');
 
   const showBaseCk    = document.getElementById('showBase');
-  const showTrails    = document.getElementById('showTrails');
+  const showTrails    = document.getElementById('showTrails'); // OTN trails (blue)
+  const showTrailsOSM = document.getElementById('showTrailsOSM'); // OSM trails (orange)
   const showPinsCk    = document.getElementById('showPins');
   const showCrosshair = document.getElementById('showCrosshair');
   const showStocked   = document.getElementById('showStocked');
@@ -513,6 +514,91 @@ if (showTrails?.checked) trailsLayer.addTo(map);
   showTrails?.addEventListener('change', () => {
     showTrails.checked ? trailsLayer.addTo(map) : map.removeLayer(trailsLayer);
   });
+
+// ---------------------------------------------------------------------------
+// Trails (OSM_paths.geojson) + toggle
+// ---------------------------------------------------------------------------
+function trailOSMPopupContent(p = {}) {
+  const val = (v) => (v == null || v === '' ? '—' : String(v));
+
+  const name =
+    p.name ||
+    p.NAME ||
+    p.trail_name ||
+    p.TRAIL_NAME ||
+    'Trail';
+
+  const surface = p.surface || p.SURFACE || null;
+  const access  = p.access || p.ACCESS || null;
+  const bicycle = p.bicycle || p.BICYCLE || null;
+  const foot    = p.foot || p.FOOT || null;
+  const horse   = p.horse || p.HORSE || null;
+  const highway = p.highway || p.HIGHWAY || null;
+
+  let html = `
+    <div style="min-width:240px">
+      <div style="font-weight:700;margin-bottom:6px">${val(name)}</div>
+  `;
+
+  if (highway) html += `<div><b>Type:</b> ${val(highway)}</div>`;
+  if (surface) html += `<div><b>Surface:</b> ${val(surface)}</div>`;
+  if (access)  html += `<div><b>Access:</b> ${val(access)}</div>`;
+  if (foot)    html += `<div><b>Foot:</b> ${val(foot)}</div>`;
+  if (bicycle) html += `<div><b>Bicycle:</b> ${val(bicycle)}</div>`;
+  if (horse)   html += `<div><b>Horse:</b> ${val(horse)}</div>`;
+
+  html += `</div>`;
+  return html;
+}
+
+const trailsOSMLayer = L.geoJSON(null, {
+  style: {
+    color: '#8b5a2b',
+    weight: 2,
+    opacity: 0.75
+  },
+  interactive: false
+});
+
+
+let trailsOSMLoaded = false;
+let trailsOSMLoading = null;
+
+async function ensureTrailsOSMLoaded() {
+  if (trailsOSMLoaded) return;
+  if (trailsOSMLoading) return trailsOSMLoading;
+
+  trailsOSMLoading = (async () => {
+    const data = await fetchFirstJSON([
+      './OSM_paths.geojson',
+      './data/OSM_paths.geojson',
+      '/OSM_paths.geojson',
+      '/data/OSM_paths.geojson'
+    ]);
+    trailsOSMLayer.addData(data);
+    trailsOSMLoaded = true;
+  })();
+
+  try {
+    await trailsOSMLoading;
+  } finally {
+    trailsOSMLoading = null;
+  }
+}
+
+showTrailsOSM?.addEventListener('change', async () => {
+  if (showTrailsOSM.checked) {
+    try {
+      await ensureTrailsOSMLoaded();
+      trailsOSMLayer.addTo(map);
+    } catch (err) {
+      console.warn('Trails not loaded (OSM_paths.geojson).', err.message);
+      showTrailsOSM.checked = false;
+    }
+  } else {
+    map.removeLayer(trailsOSMLayer);
+  }
+});
 
 
   // ---------------------------------------------------------------------------
@@ -2003,13 +2089,10 @@ refreshMeasurement();
   // CLUPA family (if present in HTML)
 
   // Grab the new master checkbox (keep the old two if they still exist)
-  const showCLUPA = document.getElementById('showCLUPA');
+const showCLUPA = document.getElementById('showCLUPA');
 
-  // Master checkbox: single source of truth
-  showCLUPA?.addEventListener('change', () => setClupaAll(showCLUPA.checked));
-
-  // Persist the master checkbox state
-  restoreCheckbox('showCLUPA', (on) => setClupaAll(on));
+showCLUPA?.addEventListener('change', () => setClupaAll(showCLUPA.checked));
+if (showCLUPA) restoreCheckbox(showCLUPA, (on) => setClupaAll(on));
 
 
   //restoreCheckbox('showCLUPAProv',   (on) => setClupaProv(on));
