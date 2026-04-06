@@ -1762,6 +1762,20 @@ function routeBoundsFromPoints(points) {
   return L.latLngBounds(points.map(p => [p.lat, p.lng]));
 }
 
+const SERVER_ROUTE_COLORS = [
+  '#8b5cf6', // purple
+  '#ec4899', // pink
+  '#10b981', // green
+  '#ef4444', // red
+  '#14b8a6', // teal
+  '#a16207', // mustard/brown
+  '#6b7280', // slate
+  '#d946ef'  // magenta
+];
+
+function getServerRouteColor(idx) {
+  return SERVER_ROUTE_COLORS[idx % SERVER_ROUTE_COLORS.length];
+}
 
 function renderServerRoutes() {
   serverRoutesLayer.clearLayers();
@@ -1770,12 +1784,14 @@ function renderServerRoutes() {
     const pts = Array.isArray(route?.points) ? route.points : [];
     if (!pts.length) return;
 
+    const routeColor = getServerRouteColor(idx);
+
     const line = L.polyline(
       pts.map(p => [p.lat, p.lng]),
       {
-        color: '#2563eb',
+        color: routeColor,
         weight: 4,
-        opacity: 0.8
+        opacity: 0.85
       }
     ).addTo(serverRoutesLayer);
 
@@ -1783,19 +1799,20 @@ function renderServerRoutes() {
       `<b>${esc(route.name || `Saved Route ${idx + 1}`)}</b><br>${pts.length} point(s)`
     );
 
-    pts.forEach((p, pIdx) => {
-      L.circleMarker([p.lat, p.lng], {
-        radius: 4,
-        color: '#1d4ed8',
-        fillColor: '#2563eb',
-        fillOpacity: 0.9
-      })
-      .bindTooltip(pIdx === 0 ? 'Start' : `Point ${pIdx + 1}`, {
-        direction: 'top',
-        offset: [0, -6]
-      })
-      .addTo(serverRoutesLayer);
-    });
+pts.forEach((p, pIdx) => {
+  L.circleMarker([p.lat, p.lng], {
+    radius: pIdx === 0 ? 5 : 4,
+    color: routeColor,
+    fillColor: pIdx === 0 ? '#ffffff' : routeColor,
+    fillOpacity: 1,
+    weight: 2
+  })
+  .bindTooltip(pIdx === 0 ? 'Start' : `Point ${pIdx + 1}`, {
+    direction: 'top',
+    offset: [0, -6]
+  })
+  .addTo(serverRoutesLayer);
+});
   });
 }
 
@@ -1876,6 +1893,11 @@ function clearMeasurement() {
   refreshMeasurement();
 }
 
+function clearImportedRoutes() {
+  importedRoutes = [];
+  importedRoutesLayer.clearLayers();
+}
+
 function undoLastMeasurementPoint() {
   if (!measurePoints.length) return;
   measurePoints.pop();
@@ -1915,7 +1937,10 @@ function toggleMeasurement() {
 
 measureToggleBtn?.addEventListener('click', toggleMeasurement);
 measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
-measureClearBtn?.addEventListener('click', clearMeasurement);
+measureClearBtn?.addEventListener('click', () => {
+  clearMeasurement();
+  clearImportedRoutes();
+});
 exportRouteBtn?.addEventListener('click', exportPlotRoute);
 
 importRouteInput?.addEventListener('change', async (e) => {
