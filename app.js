@@ -175,26 +175,26 @@ else map.removeLayer(serverRoutesLayer);
       }
     });
 
-    const constrained = {
-      geocode: function(query, cb, context){
-        nom.geocode(query, function(results){
-const filtered = results.filter(r => {
-  const inBox = !!r.center && ON_QC_BOUNDS.contains(r.center);
-  const addr  = r.properties?.address || {};
+
+    function keepAllowed(r) {
+  const inBox = !!r?.center && ON_QC_BOUNDS.contains(r.center);
+  const addr  = r?.properties?.address || {};
   const country = (addr.country_code || '').toLowerCase();
   const state = addr.state || addr.province || '';
 
-  // Keep Canadian ON/QC results, but do not reject sparse natural-feature
-  // results that are inside the ON/QC bounding box and have no province field.
   const inCA = !country || country === 'ca';
   const inPQ = !state || ALLOWED_STATES.has(state);
 
   return inBox && inCA && inPQ;
-});
-          cb.call(context, filtered);
-        });
-      }
-    };
+}
+
+const constrained = {
+  geocode: function(query, cb, context){
+    nom.geocode(query, function(results){
+      cb.call(context, (results || []).filter(keepAllowed));
+    });
+  }
+};
 
 
   function setResultsMessage(msg){
@@ -245,7 +245,7 @@ const filtered = results.filter(r => {
     if (r.center) {
       searchMarker = L.marker(r.center)
         .addTo(map)
-        .bindPopup(r.name || 'Location')
+        .bindPopup(r.name || r.properties?.display_name || 'Location')
         .openPopup();
     }
 
@@ -256,21 +256,8 @@ const filtered = results.filter(r => {
 
 
 
-  // --- helpers: keep just above runSearch ------------------------------
-// --- helpers: keep just above runSearch ------------------------------
+  // --- helpers: keep just above runSearch -----------------------------
 
-// UPDATED: allow ON/QC by bounds even if province missing
-function keepAllowed(r) {
-  const inBox = ON_QC_BOUNDS.contains(r.center);
-  const addr  = r.properties?.address || {};
-  const inCA  = (addr.country_code || '').toLowerCase() === 'ca';
-
-  // KEY FIX: province is now optional if clearly inside bounding box
-  const state = addr.state || addr.province || '';
-  const inPQ  = !state || ALLOWED_STATES.has(state);
-
-  return inBox && inCA && inPQ;
-}
 
 // detect water-like results by Nominatim class/type
 function isWaterFeature(r) {
@@ -284,6 +271,8 @@ function isWaterFeature(r) {
   if (['reservoir','harbour','harbor','lagoon','pond','wetland'].includes(t)) return true;
 
   if (c === 'place' && ['sea','bay','ocean','strait','fjord','gulf','sound','inlet'].includes(t)) return true;
+
+  if (c === 'nrcan' && t === 'lake') return true;
 
   return false;
 }
@@ -317,6 +306,93 @@ function dedupeBySignature(list) {
 const geocodeP = (geocoder, query) => new Promise(res => {
   geocoder.geocode(query, (results) => res(results || []));
 });
+
+async function geocodeNRCAN(q) {
+  const clean = String(q || '').trim();
+  if (!clean) return [];
+
+  const url =
+    `https://geogratis.gc.ca/services/geoname/en/geonames.json?q=${encodeURIComponent(clean)}&province[]=35`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' }
+    });
+
+    if (!res.ok) throw new Error(`NRCan HTTP ${res.status}`);
+
+    const json = await res.json();
+    const items = Array.isArray(json?.items) ? json.items : [];
+
+   
+    return items
+  .filter(item => {
+    const lat = Number(item.latitude);
+    const lng = Number(item.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+
+    const provinceDesc = String(item.province?.description || '').toLowerCase();
+    const provinceCode = String(item.province?.code || item.province?.id || item.provinceCode || '');
+
+    const isOntarioOrQuebec =
+      provinceDesc === 'ontario' ||
+      provinceCode === '35';
+
+    if (!isOntarioOrQuebec) return false;
+
+    const name = String(item.name || '').toLowerCase();
+    const generic = String(item.generic?.term || item.concise?.term || '').toLowerCase();
+
+    return (
+      generic.includes('lake') ||
+      generic.includes('lac') ||
+      name.includes(' lake') ||
+      name.startsWith('lake ') ||
+      name.startsWith('lac ')
+    );
+  })
+       .sort((a, b) => {
+    const origin = map.getCenter();
+
+    const da = origin.distanceTo(
+      L.latLng(Number(a.latitude), Number(a.longitude))
+    );
+
+    const db = origin.distanceTo(
+      L.latLng(Number(b.latitude), Number(b.longitude))
+    );
+
+    return da - db;
+  })
+  .map(item => {
+        const center = L.latLng(Number(item.latitude), Number(item.longitude));
+        const generic = item.generic?.term || item.concise?.term || 'GNBC';
+        const province = item.province?.description || 'Ontario';
+        const location = item.location ? `, ${item.location}` : '';
+
+        return {
+          name: `${item.name}${location} — ${generic}`,
+          center,
+          bbox: null,
+          class: 'nrcan',
+          type: 'lake',
+          properties: {
+            display_name: `${item.name}${location}, ${province}`,
+            address: {
+              country_code: 'ca',
+              state: province
+            },
+            source: 'NRCan/GNBC',
+            id: item.id
+          }
+        };
+      });
+
+  } catch (err) {
+    console.warn('NRCan/GNBC search failed:', err);
+    return [];
+  }
+}
 
 let _lastWaterAugmentAt = 0;
 const WATER_WORD_RE = /\b(lake|lac|river|rivière|creek|pond)\b/i;
@@ -364,6 +440,14 @@ const runSearch = async (q, mySeq) => {
 
         extras.push(...filtered);
       }
+    }
+
+     // NRCan/GNBC authoritative fallback for official Ontario lake names.
+    // This helps when Nominatim/OSM does not return an official named lake.
+    if (!hasGoodWater) {
+      const nrcanResults = await geocodeNRCAN(q);
+      if (mySeq !== searchSeq) return;
+      extras.push(...nrcanResults);
     }
 
     // 3. Merge + dedupe
