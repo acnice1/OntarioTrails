@@ -178,13 +178,19 @@ else map.removeLayer(serverRoutesLayer);
     const constrained = {
       geocode: function(query, cb, context){
         nom.geocode(query, function(results){
-          const filtered = results.filter(r => {
-            const inBox = ON_QC_BOUNDS.contains(r.center);
-            const addr  = r.properties?.address || {};
-            const inCA  = (addr.country_code || '').toLowerCase() === 'ca';
-            const inPQ  = ALLOWED_STATES.has(addr.state || addr.province || '');
-            return inBox && inCA && inPQ;
-          });
+const filtered = results.filter(r => {
+  const inBox = !!r.center && ON_QC_BOUNDS.contains(r.center);
+  const addr  = r.properties?.address || {};
+  const country = (addr.country_code || '').toLowerCase();
+  const state = addr.state || addr.province || '';
+
+  // Keep Canadian ON/QC results, but do not reject sparse natural-feature
+  // results that are inside the ON/QC bounding box and have no province field.
+  const inCA = !country || country === 'ca';
+  const inPQ = !state || ALLOWED_STATES.has(state);
+
+  return inBox && inCA && inPQ;
+});
           cb.call(context, filtered);
         });
       }
@@ -251,107 +257,127 @@ else map.removeLayer(serverRoutesLayer);
 
 
   // --- helpers: keep just above runSearch ------------------------------
+// --- helpers: keep just above runSearch ------------------------------
 
-  // province/country filter (as you already use)
-  function keepAllowed(r) {
-    const inBox = ON_QC_BOUNDS.contains(r.center);
-    const addr  = r.properties?.address || {};
-    const inCA  = (addr.country_code || '').toLowerCase() === 'ca';
-    const inPQ  = ALLOWED_STATES.has(addr.state || addr.province || '');
-    return inBox && inCA && inPQ;
-  }
+// UPDATED: allow ON/QC by bounds even if province missing
+function keepAllowed(r) {
+  const inBox = ON_QC_BOUNDS.contains(r.center);
+  const addr  = r.properties?.address || {};
+  const inCA  = (addr.country_code || '').toLowerCase() === 'ca';
 
-  // detect water-like results by Nominatim class/type
-  function isWaterFeature(r) {
-    const c = (r.class || '').toLowerCase();
-    const t = (r.type  || '').toLowerCase();
-    if (c === 'waterway') return true;
-    if (c === 'natural' && (t === 'water' || t === 'lake' || t === 'bay' || t === 'strait' || t === 'spring')) return true;
-    if (c === 'water') return true;
-    if (t === 'reservoir' || t === 'harbour' || t === 'harbor' || t === 'lagoon' || t === 'pond' || t === 'wetland') return true;
-    if (c === 'place' && (t === 'sea' || t === 'bay' || t === 'ocean' || t === 'strait' || t === 'fjord' || t === 'gulf' || t === 'sound' || t === 'inlet')) return true;
-    return false;
-  }
+  // KEY FIX: province is now optional if clearly inside bounding box
+  const state = addr.state || addr.province || '';
+  const inPQ  = !state || ALLOWED_STATES.has(state);
 
-  // also treat results whose *name* clearly indicates a waterbody
-function nameSuggestsWater(r) {
-  const s =
-    (r.name || r.html || r.properties?.display_name || '')
-      .toLowerCase();
-  return /\b(lake|lac|river|rivière|creek|pond|bay|harbour|harbor|reservorir|canal|strait|inlet|marsh|lagoon|wetland|water)\b/.test(s);
+  return inBox && inCA && inPQ;
 }
 
+// detect water-like results by Nominatim class/type
+function isWaterFeature(r) {
+  const c = (r.class || '').toLowerCase();
+  const t = (r.type  || '').toLowerCase();
 
+  if (c === 'waterway') return true;
+  if (c === 'natural' && ['water','lake','bay','strait','spring'].includes(t)) return true;
+  if (c === 'water') return true;
 
-  // dedupe by name + rounded center + class/type
-  function dedupeBySignature(list) {
-    const round = (n) => Math.round(n * 10000) / 10000; // ~11m
-    const seen = new Set();
-    const out = [];
-    for (const r of list) {
-      const name = (r.name || r.html || r.properties?.display_name || '').trim().toLowerCase();
-      const c = r.center || { lat: 0, lng: 0 };
-      const sig = `${name}|${round(c.lat)},${round(c.lng)}|${(r.class||'').toLowerCase()}:${(r.type||'').toLowerCase()}`;
-      if (!seen.has(sig)) { seen.add(sig); out.push(r); }
+  if (['reservoir','harbour','harbor','lagoon','pond','wetland'].includes(t)) return true;
+
+  if (c === 'place' && ['sea','bay','ocean','strait','fjord','gulf','sound','inlet'].includes(t)) return true;
+
+  return false;
+}
+
+// FIXED typo + expanded detection
+function nameSuggestsWater(r) {
+  const s = (r.name || r.properties?.display_name || '').toLowerCase();
+  return /\b(lake|lac|river|rivière|creek|pond|bay|harbour|harbor|reservoir|canal|strait|inlet|marsh|lagoon|wetland|water)\b/.test(s);
+}
+
+// dedupe
+function dedupeBySignature(list) {
+  const round = (n) => Math.round(n * 10000) / 10000;
+  const seen = new Set();
+  const out = [];
+
+  for (const r of list) {
+    const name = (r.name || r.properties?.display_name || '').toLowerCase();
+    const c = r.center || { lat: 0, lng: 0 };
+
+    const sig = `${name}|${round(c.lat)},${round(c.lng)}|${(r.class||'')}:${(r.type||'')}`;
+
+    if (!seen.has(sig)) {
+      seen.add(sig);
+      out.push(r);
     }
-    return out;
+  }
+  return out;
+}
+
+const geocodeP = (geocoder, query) => new Promise(res => {
+  geocoder.geocode(query, (results) => res(results || []));
+});
+
+let _lastWaterAugmentAt = 0;
+const WATER_WORD_RE = /\b(lake|lac|river|rivière|creek|pond)\b/i;
+
+
+// --- UPDATED runSearch ---------------------------------
+const runSearch = async (q, mySeq) => {
+  if (!q || q.length < 3) {
+    setResultsMessage('Type at least 3 characters…');
+    return;
   }
 
-  // promisify a geocoder call
-  const geocodeP = (geocoder, query) => new Promise(res => {
-    geocoder.geocode(query, (results) => res(results || []));
-  });
-
-  // one global throttle for water-augment calls
-  let _lastWaterAugmentAt = 0;
-  const WATER_WORD_RE = /\b(lake|lac|river|rivière|creek|pond)\b/i;
-
-
-  // --- drop-in replacement: runSearch ---------------------------------
-const runSearch = async (q, mySeq) => {
-  if (!q || q.length < 3) { setResultsMessage('Type at least 3 characters…'); return; }
   setResultsMessage('Searching…');
 
   try {
-    // 1) Primary bounded search (fast; your existing constrained geocoder)
-    const primary = (await geocodeP(constrained, q)).filter(keepAllowed);
+    // 1. Primary search
+    const primaryRaw = await geocodeP(constrained, q);
+    const primary = primaryRaw.filter(keepAllowed);
+
     if (mySeq !== searchSeq) return;
 
-    // 2) Decide if we even need a water augment
-    const alreadyHasWater = primary.some(isWaterFeature);
-    const userAlreadyHintedWater = WATER_WORD_RE.test(q);
+    // 2. Always consider water augmentation if no strong result
+    const hasGoodWater = primary.some(r => isWaterFeature(r) || nameSuggestsWater(r));
+
     const now = Date.now();
-    const throttleOk = (now - _lastWaterAugmentAt) >= 1100;   // be polite to Nominatim
+    const throttleOk = (now - _lastWaterAugmentAt) >= 800;
 
-    let merged = primary;
+    let extras = [];
 
-    // Only do ONE sequence of augments, and only if:
-    // - primary lacks any water features
-    // - user didn't already specify water terms
-    // - we’re past the throttle window
-    if (!alreadyHasWater && !userAlreadyHintedWater && throttleOk) {
+    // KEY CHANGE:
+    // Run fallback EVEN if user typed "Lake"
+    if (!hasGoodWater && throttleOk) {
       _lastWaterAugmentAt = now;
 
-      // Polite, sequential fallbacks bounded to ON/QC: stop at first hit set
-      let extras = [];
-      for (const suffix of [' lake', ' river', ' lac']) {  // include FR variant
-  const r = await geocodeP(nom, `${q}${suffix}`);
-  if (mySeq !== searchSeq) return;
+      const suffixes = [' lake', ' river', ' lac'];
 
-  // keep Ontario/Quebec-bounded results, then accept either true water features
-  // OR anything whose *name* clearly indicates a waterbody (handles place=locality lakes)
-  const filtered = r
-    .filter(keepAllowed)
-    .filter(x => isWaterFeature(x) || nameSuggestsWater(x));
+      for (const suffix of suffixes) {
+        const results = await geocodeP(nom, `${q.replace(WATER_WORD_RE, '').trim()}${suffix}`);
 
-  if (filtered.length) { extras = filtered; break; }
-}
+        if (mySeq !== searchSeq) return;
 
-      // Append (no re-ranking), dedupe across both sets
-      if (extras.length) merged = dedupeBySignature([...primary, ...extras]);
+        const filtered = results
+          .filter(keepAllowed)
+          .filter(r => isWaterFeature(r) || nameSuggestsWater(r));
+
+        extras.push(...filtered);
+      }
     }
 
+    // 3. Merge + dedupe
+    let merged = dedupeBySignature([...primary, ...extras]);
+
+    // 4. KEY CHANGE: prioritize water results
+    merged.sort((a, b) => {
+      const aw = isWaterFeature(a) || nameSuggestsWater(a);
+      const bw = isWaterFeature(b) || nameSuggestsWater(b);
+      return (bw === true) - (aw === true);
+    });
+
     renderResults(merged);
+
   } catch (err) {
     if (mySeq !== searchSeq) return;
     console.warn('Search error:', err);
