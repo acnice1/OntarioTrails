@@ -415,16 +415,17 @@ const runSearch = async (q, mySeq) => {
     if (mySeq !== searchSeq) return;
 
     // 2. Always consider water augmentation if no strong result
-    const hasGoodWater = primary.some(r => isWaterFeature(r) || nameSuggestsWater(r));
+const hasGoodWater = primary.some(r => isWaterFeature(r) || nameSuggestsWater(r));
+const userAskedForWater = WATER_WORD_RE.test(q) || /\b(lake|lac|pond|reservoir|water)\b/i.test(q);
 
-    const now = Date.now();
-    const throttleOk = (now - _lastWaterAugmentAt) >= 800;
+const now = Date.now();
+const throttleOk = (now - _lastWaterAugmentAt) >= 800;
 
-    let extras = [];
+let extras = [];
 
     // KEY CHANGE:
     // Run fallback EVEN if user typed "Lake"
-    if (!hasGoodWater && throttleOk) {
+    if (!hasGoodWater && userAskedForWater && throttleOk) {
       _lastWaterAugmentAt = now;
 
       const suffixes = [' lake', ' river', ' lac'];
@@ -444,21 +445,37 @@ const runSearch = async (q, mySeq) => {
 
      // NRCan/GNBC authoritative fallback for official Ontario lake names.
     // This helps when Nominatim/OSM does not return an official named lake.
-    if (!hasGoodWater) {
-      const nrcanResults = await geocodeNRCAN(q);
-      if (mySeq !== searchSeq) return;
-      extras.push(...nrcanResults);
-    }
+ if (!hasGoodWater && userAskedForWater) {
+  const nrcanResults = await geocodeNRCAN(q);
+  if (mySeq !== searchSeq) return;
+  extras.push(...nrcanResults);
+}
 
     // 3. Merge + dedupe
     let merged = dedupeBySignature([...primary, ...extras]);
 
     // 4. KEY CHANGE: prioritize water results
-    merged.sort((a, b) => {
-      const aw = isWaterFeature(a) || nameSuggestsWater(a);
-      const bw = isWaterFeature(b) || nameSuggestsWater(b);
-      return (bw === true) - (aw === true);
-    });
+// 4. Sort by water relevance first, then distance from current map centre
+const origin = map.getCenter();
+
+merged.sort((a, b) => {
+  const aw = isWaterFeature(a) || nameSuggestsWater(a);
+  const bw = isWaterFeature(b) || nameSuggestsWater(b);
+
+  if (aw !== bw) return bw - aw;
+
+  const ac = a.center;
+  const bc = b.center;
+
+  if (!ac && !bc) return 0;
+  if (!ac) return 1;
+  if (!bc) return -1;
+
+  const da = origin.distanceTo(ac);
+  const db = origin.distanceTo(bc);
+
+  return da - db;
+});
 
     renderResults(merged);
 
