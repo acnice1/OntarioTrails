@@ -445,7 +445,7 @@ let extras = [];
 
      // NRCan/GNBC authoritative fallback for official Ontario lake names.
     // This helps when Nominatim/OSM does not return an official named lake.
- if (!hasGoodWater && userAskedForWater) {
+ if (userAskedForWater) {
   const nrcanResults = await geocodeNRCAN(q);
   if (mySeq !== searchSeq) return;
   extras.push(...nrcanResults);
