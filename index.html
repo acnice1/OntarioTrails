@@ -122,7 +122,6 @@
           <label><input type="checkbox" id="showContours"> Elevation Contours</label>
           <label><input type="checkbox" id="showPins" checked> Pins</label>
           <label><input type="checkbox" id="showServerRoutes" checked> Stored Routes</label>
-          <label><input type="checkbox" id="showCrosshair" checked> Crosshair</label>
           <label><input type="checkbox" id="showStocked"> Stocked Lakes</label>
           <label><input type="checkbox" id="showAccess"> Water Access Points</label>
           <label><input type="checkbox" id="showTrails"> Trails (OTN)</label>
@@ -262,6 +261,14 @@
   <section class="panel-section">
     <h3>Settings</h3>
 
+    <label class="setting-row">
+  <input type="checkbox" id="showCrosshair" checked>
+  Show crosshair
+</label>
+<div class="muted setting-help">
+  Shows a centre marker for dropping pins, checking position, and planning routes.
+</div>
+     
     <label class="setting-row">
       <input type="checkbox" id="settingOfflinePreview">
       Offline Preview
