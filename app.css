@@ -490,23 +490,20 @@ input[type="range"]::-moz-range-thumb{
   border-color: #1472ff;
   color: #1472ff;
 }
-/* Hard hide anything marked hidden, including mobile tab rows */
-[hidden] {
-  display: none !important;
-}
 
+/* Hard hide anything marked hidden, including mobile tab rows */
+[hidden],
+#mainTabs[hidden],
 #utilityTabs[hidden] {
   display: none !important;
 }
-/* Utility tabs are hidden by default */
-#utilityTabs {
-  display: none;
+
+/* Both tab rows use the same grid layout when visible */
+#mainTabs.tabs:not([hidden]),
+#utilityTabs.tabs:not([hidden]) {
+  display: grid;
 }
 
-/* JavaScript adds this class when the settings gear is open */
-#utilityTabs.utility-open {
-  display: flex;
-}
 .offline-area-box {
   stroke: #1472ff;
   stroke-width: 2;

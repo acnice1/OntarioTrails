@@ -571,8 +571,12 @@ merged.sort((a, b) => {
   //
   // Tabs: simple show/hide
   // Persist last-opened tab in localStorage
-  const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
-  const tabPanels  = Array.from(document.querySelectorAll('.tab-panel'));
+
+const mainTabs   = document.getElementById('mainTabs');
+const utilityTabs = document.getElementById('utilityTabs');
+
+const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+const tabPanels  = Array.from(document.querySelectorAll('.tab-panel'));
 
   function activateTab(id){
   tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === id));
@@ -596,10 +600,23 @@ merged.sort((a, b) => {
 
   
   tabButtons.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
-  (function restoreLastTab(){
-    const id = localStorage.getItem('ontarioTrails.lastTab') || 'tab-map';
-    activateTab(id);
-  })();
+(function restoreLastTab(){
+  const saved = localStorage.getItem('ontarioTrails.lastTab') || 'tab-map';
+
+  const utilityIds = [
+    'tab-settings',
+    'tab-emergency',
+    'tab-compass',
+    'tab-health'
+  ];
+
+  const id = utilityIds.includes(saved) ? 'tab-map' : saved;
+
+  if (mainTabs) mainTabs.hidden = false;
+  if (utilityTabs) utilityTabs.hidden = true;
+
+  activateTab(id);
+})();
 
 
 
@@ -842,7 +859,8 @@ const OFFLINE_MAX_TILE_DOWNLOAD = 900;
 function setOfflineStatus(msg) {
   if (offlineStatus) offlineStatus.textContent = msg;
 }
-const offlineAreasLayer = L.layerGroup().addTo(map);
+const offlineAreasLayer = L.layerGroup();
+offlineAreasLayer.addTo(map);
 
 function loadOfflineAreas() {
   try {
@@ -883,7 +901,18 @@ function boundsToStoredArea(bounds, minZ, maxZ, tileCount) {
 function renderOfflineAreas() {
   offlineAreasLayer.clearLayers();
 
-  if (!showOfflineAreasCk?.checked) return;
+  const showBoxes = showOfflineAreasCk ? showOfflineAreasCk.checked : true;
+
+  if (!showBoxes) {
+    if (map.hasLayer(offlineAreasLayer)) {
+      map.removeLayer(offlineAreasLayer);
+    }
+    return;
+  }
+
+  if (!map.hasLayer(offlineAreasLayer)) {
+    offlineAreasLayer.addTo(map);
+  }
 
   const areas = loadOfflineAreas();
 
@@ -897,12 +926,11 @@ function renderOfflineAreas() {
     );
 
     const rect = L.rectangle(leafletBounds, {
-      className: 'offline-area-box',
       color: '#1472ff',
-      weight: 2,
+      weight: 3,
       dashArray: '8 6',
       fillColor: '#1472ff',
-      fillOpacity: 0.08,
+      fillOpacity: 0.10,
       interactive: true
     }).addTo(offlineAreasLayer);
 
@@ -925,10 +953,12 @@ function renderOfflineAreas() {
       icon: L.divIcon({
         className: 'offline-area-label',
         html: `Offline ${area.minZ}–${area.maxZ}`,
-        iconSize: [0, 0]
+        iconSize: null
       })
     }).addTo(offlineAreasLayer);
   });
+
+  console.info(`Rendered ${areas.length} offline area box(es).`);
 }
 
 function addOfflineAreaRecord(bounds, minZ, maxZ, tileCount) {
@@ -2786,6 +2816,8 @@ refreshMeasurement();
 
   restoreCheckbox(showCrosshair, () => updateCrosshair());
 
+  restoreCheckbox(showOfflineAreasCk, () => renderOfflineAreas());
+
   restoreCheckbox(showImagery, (on) => { on ? imagery.addTo(map) : map.removeLayer(imagery); });
 
   // CLUPA family (if present in HTML)
@@ -2892,7 +2924,6 @@ showServerRoutesCk?.addEventListener('change', () => {
 // Utility Tabs: Settings, Emergency, Compass, Layer Health
 // ---------------------------------------------------------------------------
 const utilityToggleBtn = document.getElementById('utilityToggleBtn');
-const utilityTabs = document.getElementById('utilityTabs');
 
 const settingOfflinePreview = document.getElementById('settingOfflinePreview');
 const settingFieldMode = document.getElementById('settingFieldMode');
@@ -2963,8 +2994,9 @@ function isUtilityTabId(id) {
 function showUtilityTabs(show = true) {
   if (!utilityTabs || !utilityToggleBtn) return;
 
+  // Utility mode: show utility tabs, hide main tabs.
   utilityTabs.hidden = !show;
-  utilityTabs.classList.toggle('utility-open', show);
+  if (mainTabs) mainTabs.hidden = show;
 
   utilityToggleBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
   utilityToggleBtn.classList.toggle('active', show);
@@ -2976,19 +3008,15 @@ utilityToggleBtn?.addEventListener('click', () => {
   showUtilityTabs(shouldShow);
 
   if (shouldShow) {
-    // Opening utility tools: go to Settings by default.
+    // Opening utility tools: show Settings first.
     activateTab('tab-settings');
     updateOfflineStatus();
     updateEmergencyInfo();
     updateLayerHealth();
+    renderOfflineAreas?.();
   } else {
-    // Closing utility tools: if currently viewing a utility panel,
-    // return to the main Layers tab.
-    const activeUtilityPanel = document.querySelector('.tab-panel.active');
-
-    if (activeUtilityPanel && isUtilityTabId(activeUtilityPanel.id)) {
-      activateTab('tab-map');
-    }
+    // Closing utility tools: return to normal Layers tab.
+    activateTab('tab-map');
   }
 });
 
