@@ -846,6 +846,7 @@ const OFFLINE_IMAGERY_CACHE = 'ontario-trails-offline-imagery-v1';
 const OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 const OFFLINE_AREAS_KEY     = 'ontarioTrails.offlineAreas.v1';
 
+const offlineAreaNameInput  = document.getElementById('offlineAreaName');
 const offlineMinZoomInput   = document.getElementById('offlineMinZoom');
 const offlineMaxZoomInput   = document.getElementById('offlineMaxZoom');
 const offlineEstimateBtn    = document.getElementById('offlineEstimateBtn');
@@ -878,13 +879,15 @@ function saveOfflineAreas(areas) {
   } catch {}
 }
 
-function boundsToStoredArea(bounds, minZ, maxZ, tileCount) {
+function boundsToStoredArea(bounds, minZ, maxZ, tileCount, name) {
   const sw = bounds.getSouthWest();
   const ne = bounds.getNorthEast();
 
+  const cleanName = String(name || '').trim();
+
   return {
     id: `offline-area-${Date.now()}`,
-    name: `Offline area ${new Date().toLocaleDateString()}`,
+    name: cleanName || `Offline area ${new Date().toLocaleDateString()}`,
     createdAt: new Date().toISOString(),
     minZ,
     maxZ,
@@ -948,14 +951,17 @@ function renderOfflineAreas() {
       </div>`
     );
 
-    L.marker(leafletBounds.getCenter(), {
-      interactive: false,
-      icon: L.divIcon({
-        className: 'offline-area-label',
-        html: `Offline ${area.minZ}–${area.maxZ}`,
-        iconSize: null
-      })
-    }).addTo(offlineAreasLayer);
+const labelLatLng = leafletBounds.getNorthEast();
+
+L.marker(labelLatLng, {
+  interactive: false,
+  icon: L.divIcon({
+    className: 'offline-area-label',
+    html: `${esc(label)} · Z${area.minZ}–${area.maxZ}`,
+    iconSize: null,
+    iconAnchor: [0, 0]
+  })
+}).addTo(offlineAreasLayer);
   });
 
   console.info(`Rendered ${areas.length} offline area box(es).`);
@@ -963,8 +969,9 @@ function renderOfflineAreas() {
 
 function addOfflineAreaRecord(bounds, minZ, maxZ, tileCount) {
   const areas = loadOfflineAreas();
+  const name = offlineAreaNameInput?.value || '';
 
-  areas.push(boundsToStoredArea(bounds, minZ, maxZ, tileCount));
+  areas.push(boundsToStoredArea(bounds, minZ, maxZ, tileCount, name));
 
   saveOfflineAreas(areas);
   renderOfflineAreas();
@@ -1155,6 +1162,7 @@ async function downloadOfflineArea() {
 
     if (failed < urls.length) {
   addOfflineAreaRecord(bounds, minZ, maxZ, urls.length);
+  if (offlineAreaNameInput) offlineAreaNameInput.value = '';
 }
 
     setOfflineStatus(
