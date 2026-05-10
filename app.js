@@ -967,11 +967,15 @@ const labelLatLng = leafletBounds.getNorthEast();
 
 L.marker(labelLatLng, {
   interactive: false,
+  keyboard: false,
   icon: L.divIcon({
     className: 'offline-area-label-icon',
     html: `<div class="offline-area-label">${esc(label)} · Z${area.minZ}–${area.maxZ}</div>`,
-    iconSize: [1, 1],
-    iconAnchor: [0, 0]
+
+    // Give Leaflet a real box so mobile rendering is stable.
+    // Anchor at the top-right, so the label sits inside the downloaded area.
+    iconSize: [180, 28],
+    iconAnchor: [180, 0]
   })
 }).addTo(offlineAreasLayer);
   });
@@ -3018,8 +3022,17 @@ function setTabMode(mode = 'main') {
   panel.classList.toggle('utility-tabs-mode', utilityMode);
   panel.classList.toggle('main-tabs-mode', !utilityMode);
 
-  if (mainTabs) mainTabs.hidden = false;
-  if (utilityTabs) utilityTabs.hidden = false;
+  // Use both class-based CSS and hidden attributes.
+  // This makes mobile/PWA behaviour much less fragile.
+  if (mainTabs) {
+    mainTabs.hidden = utilityMode;
+    mainTabs.setAttribute('aria-hidden', utilityMode ? 'true' : 'false');
+  }
+
+  if (utilityTabs) {
+    utilityTabs.hidden = !utilityMode;
+    utilityTabs.setAttribute('aria-hidden', utilityMode ? 'false' : 'true');
+  }
 
   utilityToggleBtn?.setAttribute('aria-expanded', utilityMode ? 'true' : 'false');
   utilityToggleBtn?.classList.toggle('active', utilityMode);

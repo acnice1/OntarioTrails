@@ -491,14 +491,26 @@ input[type="range"]::-moz-range-thumb{
   color: #1472ff;
 }
 
-/* Hard hide anything marked hidden */
+/* ==========================================================================
+   Final tab-row visibility model
+   ========================================================================== */
+
+/* Hard hide anything explicitly hidden */
 [hidden] {
   display: none !important;
 }
 
-/* Mobile-friendly tab rows */
-.tabs {
-  display: flex;
+/* Default: both tab rows are hidden unless the panel mode says otherwise */
+#mainTabs,
+#utilityTabs {
+  display: none !important;
+}
+
+/* Shared visible tab-row layout */
+.control-panel.main-tabs-mode #mainTabs,
+.control-panel.utility-tabs-mode #utilityTabs {
+  display: flex !important;
+  flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
   gap: 6px;
@@ -507,28 +519,42 @@ input[type="range"]::-moz-range-thumb{
   scrollbar-width: thin;
 }
 
+/* Explicitly hide the opposite row in each mode */
+.control-panel.main-tabs-mode #utilityTabs {
+  display: none !important;
+}
+
+.control-panel.utility-tabs-mode #mainTabs {
+  display: none !important;
+}
+
 .tab-btn {
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
-/* Preserve explicit tab-mode visibility */
-.control-panel.main-tabs-mode #mainTabs {
-  display: flex !important;
+/* Keep utility tabs compact enough on mobile */
+.utility-tab-btn {
+  font-size: 13px;
 }
 
-.control-panel.main-tabs-mode #utilityTabs {
-  display: none !important;
+/* Mobile: make tab row easier to swipe and prevent clipping */
+@media (max-width: 768px) {
+  .control-panel.main-tabs-mode #mainTabs,
+  .control-panel.utility-tabs-mode #utilityTabs {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+  }
+
+  .tab-btn {
+    padding: 8px 10px;
+  }
 }
 
-/* Utility mode: show settings/field tabs only */
-.control-panel.utility-tabs-mode #mainTabs {
-  display: none !important;
-}
 
-.control-panel.utility-tabs-mode #utilityTabs {
-  display: grid !important;
-}
+/* ==========================================================================
+   Downloaded offline area boxes and labels
+   ========================================================================== */
 
 .offline-area-box {
   stroke: #1472ff;
@@ -543,19 +569,44 @@ input[type="range"]::-moz-range-thumb{
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
+  overflow: visible !important;
 }
 
 /* Actual visible label */
 .offline-area-label {
-  display: inline-block;
-  background: rgba(20, 114, 255, 0.92);
-  color: white;
+  display: block;
+  box-sizing: border-box;
+
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  background: rgba(20, 114, 255, 0.94);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.75);
   border-radius: 999px;
   padding: 4px 9px;
-  font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.2;
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-  white-space: nowrap;
+
+  box-shadow: 0 2px 8px rgba(0,0,0,0.22);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+
+  /* Do not transform the text itself; mobile browsers render this more cleanly */
+  transform: none;
+}
+
+@media (max-width: 768px) {
+  .offline-area-label {
+    max-width: 140px;
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+}
 
   /* Pull the label back inside the top-right corner */
   transform: translate(-100%, 0);
