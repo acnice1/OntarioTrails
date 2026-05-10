@@ -524,6 +524,7 @@ merged.sort((a, b) => {
   const panel    = document.getElementById('controlPanel');
   const toggle   = document.getElementById('controlToggle');
   const closeBtn = document.getElementById('closePanelBtn');
+  const utilityToggleBtn = document.getElementById('utilityToggleBtn');
 
   const showBaseCk    = document.getElementById('showBase');
   const showTrails    = document.getElementById('showTrails'); // OTN trails (blue)
@@ -579,8 +580,13 @@ const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
 const tabPanels  = Array.from(document.querySelectorAll('.tab-panel'));
 
   function activateTab(id){
-  tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === id));
-  tabPanels.forEach(p => {
+ 
+    tabButtons.forEach(b => {
+    const isMatch = b.dataset.tab === id;
+    b.classList.toggle('active', isMatch);
+  });
+
+    tabPanels.forEach(p => {
     const on = (p.id === id);
     p.classList.toggle('active', on);
     // Optional: if you use [hidden] in your CSS, you can sync that too:
@@ -600,7 +606,8 @@ const tabPanels  = Array.from(document.querySelectorAll('.tab-panel'));
 
   
   tabButtons.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
-(function restoreLastTab(){
+
+  (function restoreLastTab(){
   const saved = localStorage.getItem('ontarioTrails.lastTab') || 'tab-map';
 
   const utilityIds = [
@@ -612,12 +619,9 @@ const tabPanels  = Array.from(document.querySelectorAll('.tab-panel'));
 
   const id = utilityIds.includes(saved) ? 'tab-map' : saved;
 
-  if (mainTabs) mainTabs.hidden = false;
-  if (utilityTabs) utilityTabs.hidden = true;
-
+  setTabMode('main');
   activateTab(id);
 })();
-
 
 
   showBaseCk?.addEventListener('change', () => {
@@ -956,9 +960,9 @@ const labelLatLng = leafletBounds.getNorthEast();
 L.marker(labelLatLng, {
   interactive: false,
   icon: L.divIcon({
-    className: 'offline-area-label',
-    html: `${esc(label)} · Z${area.minZ}–${area.maxZ}`,
-    iconSize: null,
+    className: 'offline-area-label-icon',
+    html: `<div class="offline-area-label">${esc(label)} · Z${area.minZ}–${area.maxZ}</div>`,
+    iconSize: [1, 1],
     iconAnchor: [0, 0]
   })
 }).addTo(offlineAreasLayer);
@@ -2931,7 +2935,6 @@ showServerRoutesCk?.addEventListener('change', () => {
 // ---------------------------------------------------------------------------
 // Utility Tabs: Settings, Emergency, Compass, Layer Health
 // ---------------------------------------------------------------------------
-const utilityToggleBtn = document.getElementById('utilityToggleBtn');
 
 const settingOfflinePreview = document.getElementById('settingOfflinePreview');
 const settingFieldMode = document.getElementById('settingFieldMode');
@@ -2999,31 +3002,38 @@ function isUtilityTabId(id) {
   ].includes(id);
 }
 
+function setTabMode(mode = 'main') {
+  if (!panel) return;
+
+  const utilityMode = mode === 'utility';
+
+  panel.classList.toggle('utility-tabs-mode', utilityMode);
+  panel.classList.toggle('main-tabs-mode', !utilityMode);
+
+  if (mainTabs) mainTabs.hidden = false;
+  if (utilityTabs) utilityTabs.hidden = false;
+
+  utilityToggleBtn?.setAttribute('aria-expanded', utilityMode ? 'true' : 'false');
+  utilityToggleBtn?.classList.toggle('active', utilityMode);
+}
+
 function showUtilityTabs(show = true) {
-  if (!utilityTabs || !utilityToggleBtn) return;
-
-  // Utility mode: show utility tabs, hide main tabs.
-  utilityTabs.hidden = !show;
-  if (mainTabs) mainTabs.hidden = show;
-
-  utilityToggleBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
-  utilityToggleBtn.classList.toggle('active', show);
+  setTabMode(show ? 'utility' : 'main');
 }
 
 utilityToggleBtn?.addEventListener('click', () => {
-  const shouldShow = !!utilityTabs?.hidden;
+  const isUtilityMode = panel?.classList.contains('utility-tabs-mode');
+  const shouldShowUtility = !isUtilityMode;
 
-  showUtilityTabs(shouldShow);
+  showUtilityTabs(shouldShowUtility);
 
-  if (shouldShow) {
-    // Opening utility tools: show Settings first.
+  if (shouldShowUtility) {
     activateTab('tab-settings');
     updateOfflineStatus();
     updateEmergencyInfo();
     updateLayerHealth();
     renderOfflineAreas?.();
   } else {
-    // Closing utility tools: return to normal Layers tab.
     activateTab('tab-map');
   }
 });
