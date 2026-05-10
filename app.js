@@ -2852,6 +2852,8 @@ function showUtilityTabs(show = true) {
   if (!utilityTabs || !utilityToggleBtn) return;
 
   utilityTabs.hidden = !show;
+  utilityTabs.classList.toggle('utility-open', show);
+
   utilityToggleBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
   utilityToggleBtn.classList.toggle('active', show);
 }

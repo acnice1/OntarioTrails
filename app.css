@@ -490,3 +490,11 @@ input[type="range"]::-moz-range-thumb{
   border-color: #1472ff;
   color: #1472ff;
 }
+/* Hard hide anything marked hidden, including mobile tab rows */
+[hidden] {
+  display: none !important;
+}
+
+#utilityTabs[hidden] {
+  display: none !important;
+}
