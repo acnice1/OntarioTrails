@@ -43,8 +43,11 @@ const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   map.getPane('clupaPane').style.zIndex = 360; // imagery was 300
 
   // Ontario Imagery WMTS (toggleable; opacity controlled by slider)
-  const imagery = L.tileLayer(
-    'https://ws.lioservices.lrc.gov.on.ca/arcgis1071a/rest/services/LIO_Imagery/Ontario_Imagery_Web_Map_Service/MapServer/tile/{z}/{y}/{x}',
+const ONTARIO_IMAGERY_TILE_TEMPLATE =
+  'https://ws.lioservices.lrc.gov.on.ca/arcgis1071a/rest/services/LIO_Imagery/Ontario_Imagery_Web_Map_Service/MapServer/tile/{z}/{y}/{x}';
+
+const imagery = L.tileLayer(
+  ONTARIO_IMAGERY_TILE_TEMPLATE,
     {
       maxZoom: 22,           // auto-capped later by capabilities fetch
       attribution: 'Imagery © Ontario LIO',
@@ -819,7 +822,231 @@ showTrailsOSM?.addEventListener('change', async () => {
 
   // Initialize opacity from slider default
   if (imageryOpacity) setImageryOpacity(Number(imageryOpacity.value));
+// ---------------------------------------------------------------------------
+// Offline Area Download: Satellite imagery tiles + OTN GeoJSON
+// ---------------------------------------------------------------------------
+const OFFLINE_IMAGERY_CACHE = 'ontario-trails-offline-imagery-v1';
+const OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 
+const offlineMinZoomInput   = document.getElementById('offlineMinZoom');
+const offlineMaxZoomInput   = document.getElementById('offlineMaxZoom');
+const offlineEstimateBtn    = document.getElementById('offlineEstimateBtn');
+const offlineDownloadBtn    = document.getElementById('offlineDownloadBtn');
+const offlineClearBtn       = document.getElementById('offlineClearBtn');
+const offlineStatus         = document.getElementById('offlineStatus');
+
+const OFFLINE_MAX_TILE_DOWNLOAD = 900;
+
+function setOfflineStatus(msg) {
+  if (offlineStatus) offlineStatus.textContent = msg;
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function getOfflineZoomRange() {
+  const currentZ = map.getZoom();
+
+  let minZ = clampInt(offlineMinZoomInput?.value, 5, 22, currentZ);
+  let maxZ = clampInt(offlineMaxZoomInput?.value, 5, 22, currentZ);
+
+  if (minZ > maxZ) {
+    const tmp = minZ;
+    minZ = maxZ;
+    maxZ = tmp;
+  }
+
+  if (offlineMinZoomInput) offlineMinZoomInput.value = String(minZ);
+  if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(maxZ);
+
+  return { minZ, maxZ };
+}
+
+function tileUrlFromTemplate(template, z, x, y) {
+  return template
+    .replace('{z}', z)
+    .replace('{x}', x)
+    .replace('{y}', y);
+}
+
+function getTileRangeForBounds(bounds, z) {
+  const tileSize = 256;
+
+  const nw = map.project(bounds.getNorthWest(), z).divideBy(tileSize).floor();
+  const se = map.project(bounds.getSouthEast(), z).divideBy(tileSize).floor();
+
+  const minX = Math.min(nw.x, se.x);
+  const maxX = Math.max(nw.x, se.x);
+  const minY = Math.min(nw.y, se.y);
+  const maxY = Math.max(nw.y, se.y);
+
+  return { minX, maxX, minY, maxY };
+}
+
+function buildImageryTileUrlList(bounds, minZ, maxZ) {
+  const urls = [];
+
+  for (let z = minZ; z <= maxZ; z++) {
+    const r = getTileRangeForBounds(bounds, z);
+
+    for (let x = r.minX; x <= r.maxX; x++) {
+      for (let y = r.minY; y <= r.maxY; y++) {
+        urls.push(tileUrlFromTemplate(ONTARIO_IMAGERY_TILE_TEMPLATE, z, x, y));
+      }
+    }
+  }
+
+  return urls;
+}
+
+async function cacheOTNData() {
+  if (!('caches' in window)) return false;
+
+  const candidates = [
+    './data/OTN.geojson',
+    '/data/OTN.geojson'
+  ];
+
+  const cache = await caches.open(OFFLINE_DATA_CACHE);
+
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) continue;
+
+      await cache.put(url, res.clone());
+      return true;
+    } catch (err) {
+      console.warn('OTN cache attempt failed:', url, err);
+    }
+  }
+
+  return false;
+}
+
+async function cacheTileUrl(url, cache) {
+  // no-cors allows cross-origin imagery tiles to be stored as opaque responses.
+  const req = new Request(url, { mode: 'no-cors' });
+  const existing = await cache.match(req, { ignoreVary: true });
+
+  if (existing) return 'cached';
+
+  const res = await fetch(req);
+  await cache.put(req, res.clone());
+  return 'downloaded';
+}
+
+async function estimateOfflineArea() {
+  if (!('caches' in window)) {
+    setOfflineStatus('Offline cache is not available in this browser.');
+    return;
+  }
+
+  const { minZ, maxZ } = getOfflineZoomRange();
+  const urls = buildImageryTileUrlList(map.getBounds(), minZ, maxZ);
+
+  let storageMsg = '';
+  if (navigator.storage?.estimate) {
+    try {
+      const estimate = await navigator.storage.estimate();
+      const usedMB = estimate.usage ? (estimate.usage / 1024 / 1024).toFixed(1) : '?';
+      const quotaMB = estimate.quota ? (estimate.quota / 1024 / 1024).toFixed(0) : '?';
+      storageMsg = ` Storage: ${usedMB} MB used of ~${quotaMB} MB available.`;
+    } catch {}
+  }
+
+  setOfflineStatus(
+    `Current visible area would download about ${urls.length} imagery tile(s), zoom ${minZ}–${maxZ}.` +
+    storageMsg
+  );
+}
+
+async function downloadOfflineArea() {
+  if (!('caches' in window)) {
+    setOfflineStatus('Offline cache is not available in this browser.');
+    return;
+  }
+
+  const { minZ, maxZ } = getOfflineZoomRange();
+  const bounds = map.getBounds();
+  const urls = buildImageryTileUrlList(bounds, minZ, maxZ);
+
+  if (urls.length > OFFLINE_MAX_TILE_DOWNLOAD) {
+    setOfflineStatus(
+      `This area is too large: ${urls.length} tiles. Reduce the visible area or lower the max zoom. Limit is ${OFFLINE_MAX_TILE_DOWNLOAD} tiles.`
+    );
+    return;
+  }
+
+  offlineDownloadBtn.disabled = true;
+  offlineEstimateBtn.disabled = true;
+
+  try {
+    if (navigator.storage?.persist) {
+      try { await navigator.storage.persist(); } catch {}
+    }
+
+    setOfflineStatus(`Caching OTN trails and ${urls.length} imagery tile(s)…`);
+
+    const otnCached = await cacheOTNData();
+
+    const cache = await caches.open(OFFLINE_IMAGERY_CACHE);
+    let downloaded = 0;
+    let alreadyCached = 0;
+    let failed = 0;
+
+    for (let i = 0; i < urls.length; i++) {
+      try {
+        const result = await cacheTileUrl(urls[i], cache);
+        if (result === 'cached') alreadyCached++;
+        else downloaded++;
+      } catch (err) {
+        failed++;
+        console.warn('Tile cache failed:', urls[i], err);
+      }
+
+      if (i % 10 === 0 || i === urls.length - 1) {
+        setOfflineStatus(
+          `Offline download: ${i + 1}/${urls.length} tiles processed. ` +
+          `${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
+          `OTN: ${otnCached ? 'cached' : 'not cached'}.`
+        );
+
+        // Yield briefly so the UI can update during long downloads.
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    setOfflineStatus(
+      `Offline area ready. Imagery: ${downloaded} new tile(s), ${alreadyCached} already cached, ${failed} failed. ` +
+      `OTN trails: ${otnCached ? 'cached' : 'not cached'}.`
+    );
+  } finally {
+    offlineDownloadBtn.disabled = false;
+    offlineEstimateBtn.disabled = false;
+  }
+}
+
+async function clearOfflineImagery() {
+  if (!('caches' in window)) return;
+
+  await caches.delete(OFFLINE_IMAGERY_CACHE);
+  setOfflineStatus('Offline satellite imagery cache cleared. OTN/data cache was left in place.');
+}
+
+offlineEstimateBtn?.addEventListener('click', estimateOfflineArea);
+offlineDownloadBtn?.addEventListener('click', downloadOfflineArea);
+offlineClearBtn?.addEventListener('click', clearOfflineImagery);
+
+// Sensible defaults based on the current map zoom.
+(function initOfflineZoomDefaults() {
+  const z = map.getZoom();
+  if (offlineMinZoomInput) offlineMinZoomInput.value = String(Math.max(5, z));
+  if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(Math.min(22, z + 1));
+})();
 
   // ---------------------------------------------------------------------------
   // Stocked Lakes (Fish_Stocking_Data.geojson) + Nominatim geocode highlight

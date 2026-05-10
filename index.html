@@ -126,6 +126,36 @@
         </div>
       </section>
     </section>
+<!-- END LAYERS -->
+ <!-- OFFLINE -->
+ <section class="panel-section">
+  <h3>Offline Map Area</h3>
+
+  <div class="row">
+    <label style="display:flex;align-items:center;gap:.4rem;">
+      Min zoom
+      <input id="offlineMinZoom" type="number" min="5" max="22" value="11" style="width:4.5rem;">
+    </label>
+
+    <label style="display:flex;align-items:center;gap:.4rem;">
+      Max zoom
+      <input id="offlineMaxZoom" type="number" min="5" max="22" value="13" style="width:4.5rem;">
+    </label>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="offlineEstimateBtn">Estimate area</button>
+    <button class="btn" id="offlineDownloadBtn">⬇ Download current map area</button>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="offlineClearBtn">Clear offline imagery</button>
+  </div>
+
+  <div id="offlineStatus" class="muted" style="display:block;margin-top:6px;line-height:1.35;">
+    Downloads satellite imagery for the current visible map area and caches OTN trails.
+  </div>
+</section>
 
     <!-- ===== Tab: Pins ===== -->
     <section id="tab-pins" class="tab-panel" aria-label="Pins">
@@ -210,7 +240,7 @@
 
   <!-- App JS -->
    <!-- Cache-busting query param with build timestamp -->
-  <script defer src="./app.js?v=20260428-1948"></script>
+  <script defer src="./app.js?v=20260510-1900"></script>
 
   <script>
   // PWA Service Worker registration and auto-update activation
