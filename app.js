@@ -867,6 +867,14 @@ function setOfflineStatus(msg) {
 const offlineAreasLayer = L.layerGroup();
 offlineAreasLayer.addTo(map);
 
+function getStoredOfflineTileCount() {
+  const areas = loadOfflineAreas();
+  return areas.reduce((sum, area) => {
+    const n = Number(area.tileCount);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+}
+
 function loadOfflineAreas() {
   try {
     const raw = localStorage.getItem(OFFLINE_AREAS_KEY);
@@ -3297,7 +3305,7 @@ async function updateOfflineStatus() {
 
   const appCached = await hasCache('ontario-trails-app-v1');
   const dataCached = await hasCache('ontario-trails-offline-data-v1');
-  const imageryCount = await countCacheItems('ontario-trails-offline-imagery-v1');
+  const imageryCount = getStoredOfflineTileCount();
 
   const rows = [];
 
@@ -3319,11 +3327,11 @@ async function updateOfflineStatus() {
     dataCached ? 'status-ok' : 'status-warn'
   ));
 
-  rows.push(statusRow(
-    'Offline imagery tiles',
-    imageryCount == null ? 'Unknown' : `${imageryCount} cached`,
-    imageryCount > 0 ? 'status-ok' : 'status-warn'
-  ));
+rows.push(statusRow(
+  'Offline imagery tiles',
+  imageryCount > 0 ? `${imageryCount} in saved area metadata` : 'No saved areas',
+  imageryCount > 0 ? 'status-ok' : 'status-warn'
+));
 
   rows.push(statusRow(
     'Search / geocoding',
@@ -3352,8 +3360,8 @@ async function updateLayerHealth() {
   const accessCount =
     featureCount(typeof accessLayer !== 'undefined' ? accessLayer : null);
 
-  const imageryCached = await countCacheItems('ontario-trails-offline-imagery-v1');
-  const dataCached = await countCacheItems('ontario-trails-offline-data-v1');
+ const imageryCached = getStoredOfflineTileCount();
+const dataCached = await countCacheItems('ontario-trails-offline-data-v1');
 
   rows.push(statusRow(
     'Satellite imagery layer',
@@ -3361,11 +3369,11 @@ async function updateLayerHealth() {
     layerIsOn(imagery) ? 'status-ok' : 'status-warn'
   ));
 
-  rows.push(statusRow(
-    'Offline imagery cache',
-    imageryCached == null ? 'Unknown' : `${imageryCached} tile(s)`,
-    imageryCached > 0 ? 'status-ok' : 'status-warn'
-  ));
+rows.push(statusRow(
+  'Offline imagery cache',
+  imageryCached > 0 ? `${imageryCached} tile(s) in saved area metadata` : 'No saved areas',
+  imageryCached > 0 ? 'status-ok' : 'status-warn'
+));
 
   rows.push(statusRow(
     'OTN trails',
@@ -3414,10 +3422,16 @@ async function updateLayerHealth() {
 
 refreshLayerHealthBtn?.addEventListener('click', updateLayerHealth);
 
-map.on('layeradd layerremove zoomend', () => {
-  if (!utilityTabs?.hidden) {
+map.on('layeradd layerremove', () => {
+  if (panel?.classList.contains('utility-tabs-mode')) {
     updateLayerHealth();
     updateOfflineStatus();
+  }
+});
+
+map.on('zoomend', () => {
+  if (panel?.classList.contains('utility-tabs-mode') && document.getElementById('tab-health')?.classList.contains('active')) {
+    updateLayerHealth();
   }
 });
 
