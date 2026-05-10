@@ -827,6 +827,7 @@ showTrailsOSM?.addEventListener('change', async () => {
 // ---------------------------------------------------------------------------
 const OFFLINE_IMAGERY_CACHE = 'ontario-trails-offline-imagery-v1';
 const OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
+const OFFLINE_AREAS_KEY     = 'ontarioTrails.offlineAreas.v1';
 
 const offlineMinZoomInput   = document.getElementById('offlineMinZoom');
 const offlineMaxZoomInput   = document.getElementById('offlineMaxZoom');
@@ -834,12 +835,114 @@ const offlineEstimateBtn    = document.getElementById('offlineEstimateBtn');
 const offlineDownloadBtn    = document.getElementById('offlineDownloadBtn');
 const offlineClearBtn       = document.getElementById('offlineClearBtn');
 const offlineStatus         = document.getElementById('offlineStatus');
+const showOfflineAreasCk    = document.getElementById('showOfflineAreas');
 
 const OFFLINE_MAX_TILE_DOWNLOAD = 900;
 
 function setOfflineStatus(msg) {
   if (offlineStatus) offlineStatus.textContent = msg;
 }
+const offlineAreasLayer = L.layerGroup().addTo(map);
+
+function loadOfflineAreas() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_AREAS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOfflineAreas(areas) {
+  try {
+    localStorage.setItem(OFFLINE_AREAS_KEY, JSON.stringify(areas));
+  } catch {}
+}
+
+function boundsToStoredArea(bounds, minZ, maxZ, tileCount) {
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+
+  return {
+    id: `offline-area-${Date.now()}`,
+    name: `Offline area ${new Date().toLocaleDateString()}`,
+    createdAt: new Date().toISOString(),
+    minZ,
+    maxZ,
+    tileCount,
+    bounds: {
+      south: sw.lat,
+      west: sw.lng,
+      north: ne.lat,
+      east: ne.lng
+    }
+  };
+}
+
+function renderOfflineAreas() {
+  offlineAreasLayer.clearLayers();
+
+  if (!showOfflineAreasCk?.checked) return;
+
+  const areas = loadOfflineAreas();
+
+  areas.forEach((area, idx) => {
+    const b = area.bounds;
+    if (!b) return;
+
+    const leafletBounds = L.latLngBounds(
+      [b.south, b.west],
+      [b.north, b.east]
+    );
+
+    const rect = L.rectangle(leafletBounds, {
+      className: 'offline-area-box',
+      color: '#1472ff',
+      weight: 2,
+      dashArray: '8 6',
+      fillColor: '#1472ff',
+      fillOpacity: 0.08,
+      interactive: true
+    }).addTo(offlineAreasLayer);
+
+    const label = area.name || `Offline area ${idx + 1}`;
+    const date = area.createdAt
+      ? new Date(area.createdAt).toLocaleDateString()
+      : 'Unknown date';
+
+    rect.bindPopup(
+      `<div style="min-width:220px">
+        <div style="font-weight:700;margin-bottom:6px">${label}</div>
+        <div><b>Downloaded:</b> ${date}</div>
+        <div><b>Zoom:</b> ${area.minZ}–${area.maxZ}</div>
+        <div><b>Tiles:</b> ${area.tileCount ?? '—'}</div>
+      </div>`
+    );
+
+    L.marker(leafletBounds.getCenter(), {
+      interactive: false,
+      icon: L.divIcon({
+        className: 'offline-area-label',
+        html: `Offline ${area.minZ}–${area.maxZ}`,
+        iconSize: [0, 0]
+      })
+    }).addTo(offlineAreasLayer);
+  });
+}
+
+function addOfflineAreaRecord(bounds, minZ, maxZ, tileCount) {
+  const areas = loadOfflineAreas();
+
+  areas.push(boundsToStoredArea(bounds, minZ, maxZ, tileCount));
+
+  saveOfflineAreas(areas);
+  renderOfflineAreas();
+}
+
+showOfflineAreasCk?.addEventListener('change', () => {
+  renderOfflineAreas();
+});
 
 function clampInt(value, min, max, fallback) {
   const n = Number.parseInt(value, 10);
@@ -1020,6 +1123,10 @@ async function downloadOfflineArea() {
       }
     }
 
+    if (failed < urls.length) {
+  addOfflineAreaRecord(bounds, minZ, maxZ, urls.length);
+}
+
     setOfflineStatus(
       `Offline area ready. Imagery: ${downloaded} new tile(s), ${alreadyCached} already cached, ${failed} failed. ` +
       `OTN trails: ${otnCached ? 'cached' : 'not cached'}.`
@@ -1031,10 +1138,14 @@ async function downloadOfflineArea() {
 }
 
 async function clearOfflineImagery() {
-  if (!('caches' in window)) return;
+  if ('caches' in window) {
+    await caches.delete(OFFLINE_IMAGERY_CACHE);
+  }
 
-  await caches.delete(OFFLINE_IMAGERY_CACHE);
-  setOfflineStatus('Offline satellite imagery cache cleared. OTN/data cache was left in place.');
+  localStorage.removeItem(OFFLINE_AREAS_KEY);
+  renderOfflineAreas();
+
+  setOfflineStatus('Offline satellite imagery cache and downloaded area boxes cleared. OTN/data cache was left in place.');
 }
 
 offlineEstimateBtn?.addEventListener('click', estimateOfflineArea);
@@ -1046,6 +1157,7 @@ offlineClearBtn?.addEventListener('click', clearOfflineImagery);
   const z = map.getZoom();
   if (offlineMinZoomInput) offlineMinZoomInput.value = String(Math.max(5, z));
   if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(Math.min(22, z + 1));
+  renderOfflineAreas();
 })();
 
   // ---------------------------------------------------------------------------
