@@ -309,3 +309,184 @@ input[type="range"]::-moz-range-thumb{
 .legend-trail-osm {
   background: #8b5a2b;
 }
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.utility-tabs {
+  border-top: 1px solid #eef2f7;
+  background: rgba(246, 248, 251, 0.8);
+}
+
+.utility-tabs[hidden] {
+  display: none !important;
+}
+
+.utility-tab-btn {
+  font-size: 13px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px;
+  font-weight: 600;
+}
+
+.setting-help {
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 2px 0 8px 30px;
+}
+
+.status-list {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #e8edf3;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.85);
+}
+
+.status-item strong {
+  color: #344054;
+}
+
+.status-ok {
+  color: #087443;
+  font-weight: 700;
+}
+
+.status-warn {
+  color: #b54708;
+  font-weight: 700;
+}
+
+.status-bad {
+  color: #b42318;
+  font-weight: 700;
+}
+
+.emergency-card {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e8edf3;
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255,255,255,0.9);
+}
+
+.emergency-label {
+  font-size: 12px;
+  color: #667085;
+  margin-top: 6px;
+}
+
+.emergency-label:first-child {
+  margin-top: 0;
+}
+
+.emergency-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: #101828;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.compass-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.compass-dial {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  border: 3px solid #344054;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #fff 0%, #f9fafb 65%, #eef2f7 100%);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+.compass-needle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 72px;
+  transform-origin: 50% 100%;
+  transform: translate(-50%, -100%) rotate(0deg);
+  background: #e11d48;
+  border-radius: 999px;
+}
+
+.compass-needle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #344054;
+}
+
+.compass-n,
+.compass-e,
+.compass-s,
+.compass-w {
+  position: absolute;
+  font-weight: 800;
+  color: #344054;
+}
+
+.compass-n {
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.compass-e {
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.compass-s {
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.compass-w {
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.compass-heading {
+  font-size: 24px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+#utilityToggleBtn.active {
+  background: #e8f1ff;
+  border-color: #1472ff;
+  color: #1472ff;
+}

@@ -34,10 +34,16 @@
 
   <!-- Controls panel -->
   <aside id="controlPanel" class="control-panel open" aria-hidden="false">
-    <div class="panel-header">
-      <h2>Map Controls</h2>
-      <button id="closePanelBtn" class="icon-btn" title="Close">✕</button>
-    </div>
+<div class="panel-header">
+  <h2>Map Controls</h2>
+
+  <div class="panel-header-actions">
+    <button id="utilityToggleBtn" class="icon-btn" title="Settings and field tools" aria-expanded="false">
+      ⚙️
+    </button>
+    <button id="closePanelBtn" class="icon-btn" title="Close">✕</button>
+  </div>
+</div>
 
     <!-- Tabs -->
 <div class="tabs">
@@ -74,6 +80,28 @@
   </button>
 </div>
 
+<div id="utilityTabs" class="tabs utility-tabs" hidden>
+  <button class="tab-btn utility-tab-btn" data-tab="tab-settings">
+    <span class="ico" aria-hidden="true">⚙️</span>
+    Settings
+  </button>
+
+  <button class="tab-btn utility-tab-btn" data-tab="tab-emergency">
+    <span class="ico" aria-hidden="true">🆘</span>
+    Emergency
+  </button>
+
+  <button class="tab-btn utility-tab-btn" data-tab="tab-compass">
+    <span class="ico" aria-hidden="true">🧭</span>
+    Compass
+  </button>
+
+  <button class="tab-btn utility-tab-btn" data-tab="tab-health">
+    <span class="ico" aria-hidden="true">📊</span>
+    Layer Health
+  </button>
+</div>
+
 
     <!-- ===== Tab: Layers ===== -->
     <section id="tab-map" class="tab-panel active" aria-label="Layers">
@@ -102,6 +130,36 @@
         </div>
       </section>
 
+      <!-- Offline Map Area -->
+      <section class="panel-section">
+        <h3>Offline Map Area</h3>
+
+        <div class="row">
+          <label style="display:flex;align-items:center;gap:.4rem;">
+            Min zoom
+            <input id="offlineMinZoom" type="number" min="5" max="22" value="11" style="width:4.5rem;">
+          </label>
+
+          <label style="display:flex;align-items:center;gap:.4rem;">
+            Max zoom
+            <input id="offlineMaxZoom" type="number" min="5" max="22" value="13" style="width:4.5rem;">
+          </label>
+        </div>
+
+        <div class="row">
+          <button class="btn" id="offlineEstimateBtn">Estimate area</button>
+          <button class="btn" id="offlineDownloadBtn">⬇ Download current map area</button>
+        </div>
+
+        <div class="row">
+          <button class="btn" id="offlineClearBtn">Clear offline imagery</button>
+        </div>
+
+        <div id="offlineStatus" class="muted" style="display:block;margin-top:6px;line-height:1.35;">
+          Downloads satellite imagery for the current visible map area and caches OTN trails.
+        </div>
+      </section>
+
       <section class="panel-section">
         <h3>Legend</h3>
 
@@ -122,41 +180,10 @@
             <span id="elevMaxTick">700</span>
           </div>
           <div class="contour-note" id="contourHint">Zoom to <b>11+</b> to load contours</div>
-          <div class="contour-note">Version 1.0.8</div>
+          <div class="contour-note">Version 1.2.1</div>
         </div>
       </section>
     </section>
-<!-- END LAYERS -->
- <!-- OFFLINE -->
- <section class="panel-section">
-  <h3>Offline Map Area</h3>
-
-  <div class="row">
-    <label style="display:flex;align-items:center;gap:.4rem;">
-      Min zoom
-      <input id="offlineMinZoom" type="number" min="5" max="22" value="11" style="width:4.5rem;">
-    </label>
-
-    <label style="display:flex;align-items:center;gap:.4rem;">
-      Max zoom
-      <input id="offlineMaxZoom" type="number" min="5" max="22" value="13" style="width:4.5rem;">
-    </label>
-  </div>
-
-  <div class="row">
-    <button class="btn" id="offlineEstimateBtn">Estimate area</button>
-    <button class="btn" id="offlineDownloadBtn">⬇ Download current map area</button>
-  </div>
-
-  <div class="row">
-    <button class="btn" id="offlineClearBtn">Clear offline imagery</button>
-  </div>
-
-  <div id="offlineStatus" class="muted" style="display:block;margin-top:6px;line-height:1.35;">
-    Downloads satellite imagery for the current visible map area and caches OTN trails.
-  </div>
-</section>
-
     <!-- ===== Tab: Pins ===== -->
     <section id="tab-pins" class="tab-panel" aria-label="Pins">
       <section class="panel-section">
@@ -230,6 +257,119 @@
         <div id="searchResults" class="search-results" role="listbox" aria-label="Results"></div>
       </section>
     </section>
+    <!-- ===== Utility Tab: Settings ===== -->
+<section id="tab-settings" class="tab-panel" aria-label="Settings">
+  <section class="panel-section">
+    <h3>Settings</h3>
+
+    <label class="setting-row">
+      <input type="checkbox" id="settingOfflinePreview">
+      Offline Preview
+    </label>
+    <div class="muted setting-help">
+      Tests what should be available without a network connection.
+    </div>
+
+    <label class="setting-row">
+      <input type="checkbox" id="settingFieldMode">
+      Field Mode
+    </label>
+    <div class="muted setting-help">
+      Simplifies the app for outdoor use.
+    </div>
+
+    <label class="setting-row">
+      <input type="checkbox" id="settingKeepAwake">
+      Keep screen awake
+    </label>
+    <div class="muted setting-help">
+      Uses the browser Wake Lock API where supported.
+    </div>
+  </section>
+
+  <section class="panel-section">
+    <h3>Offline Status</h3>
+    <div id="settingsOfflineStatus" class="status-list">
+      Checking offline status…
+    </div>
+  </section>
+</section>
+
+
+<!-- ===== Utility Tab: Emergency ===== -->
+<section id="tab-emergency" class="tab-panel" aria-label="Emergency Information">
+  <section class="panel-section">
+    <h3>Emergency Info</h3>
+
+    <div class="emergency-card">
+      <div class="emergency-label">Current / last known location</div>
+      <div id="emergencyCoords" class="emergency-value">No GPS fix yet</div>
+
+      <div class="emergency-label">Accuracy</div>
+      <div id="emergencyAccuracy" class="emergency-value">—</div>
+
+      <div class="emergency-label">Last updated</div>
+      <div id="emergencyUpdated" class="emergency-value">—</div>
+
+      <div class="emergency-label">Map centre</div>
+      <div id="emergencyMapCenter" class="emergency-value">—</div>
+    </div>
+
+    <div class="row">
+      <button class="btn" id="copyEmergencyBtn">Copy emergency info</button>
+      <button class="btn" id="refreshEmergencyBtn">Refresh</button>
+    </div>
+
+    <div class="muted setting-help">
+      Use this to quickly copy coordinates for a call, text, or radio message.
+    </div>
+  </section>
+</section>
+
+
+<!-- ===== Utility Tab: Compass ===== -->
+<section id="tab-compass" class="tab-panel" aria-label="Compass">
+  <section class="panel-section">
+    <h3>Compass</h3>
+
+    <div class="compass-wrap">
+      <div class="compass-dial">
+        <div class="compass-needle" id="compassNeedle"></div>
+        <div class="compass-n">N</div>
+        <div class="compass-e">E</div>
+        <div class="compass-s">S</div>
+        <div class="compass-w">W</div>
+      </div>
+
+      <div id="compassHeading" class="compass-heading">Heading unavailable</div>
+      <div id="compassDirection" class="muted">—</div>
+    </div>
+
+    <div class="row">
+      <button class="btn" id="enableCompassBtn">Enable compass</button>
+    </div>
+
+    <div class="muted setting-help">
+      Compass support depends on browser, device sensors, and permissions.
+    </div>
+  </section>
+</section>
+
+
+<!-- ===== Utility Tab: Layer Health ===== -->
+<section id="tab-health" class="tab-panel" aria-label="Data Freshness and Layer Health">
+  <section class="panel-section">
+    <h3>Data Freshness / Layer Health</h3>
+
+    <div id="layerHealthStatus" class="status-list">
+      Checking layers…
+    </div>
+
+    <div class="row">
+      <button class="btn" id="refreshLayerHealthBtn">Refresh layer health</button>
+    </div>
+  </section>
+</section>
   </aside>
 
   <!-- Vendor JS -->

@@ -1840,6 +1840,7 @@ refreshPins();
 
 
   let watching = false, watchId = null, follow = false, you = null;
+let lastGeoFix = null;
 
   function ensureMarker() {
     if (!you) you = L.circleMarker([0,0], { radius: 6, color: '#ff00a8' }).addTo(map);
@@ -1857,7 +1858,16 @@ refreshPins();
     (pos) => {
       const { latitude, longitude } = pos.coords;
       ensureMarker().setLatLng([latitude, longitude]);
+lastGeoFix = {
+  lat: latitude,
+  lng: longitude,
+  accuracy: pos.coords.accuracy,
+  heading: pos.coords.heading,
+  speed: pos.coords.speed,
+  timestamp: pos.timestamp || Date.now()
+};
 
+updateEmergencyInfo?.();
       // Recenter if Follow is on OR this locate-click requested a one-time center
       if (follow || centerOnce) {
         map.setView([latitude, longitude], Math.max(map.getZoom(), LOCATE_ZOOM));
@@ -2765,3 +2775,491 @@ showServerRoutesCk?.addEventListener('change', () => {
     ? serverRoutesLayer.addTo(map)
     : map.removeLayer(serverRoutesLayer);
 });
+
+// ---------------------------------------------------------------------------
+// Utility Tabs: Settings, Emergency, Compass, Layer Health
+// ---------------------------------------------------------------------------
+const utilityToggleBtn = document.getElementById('utilityToggleBtn');
+const utilityTabs = document.getElementById('utilityTabs');
+
+const settingOfflinePreview = document.getElementById('settingOfflinePreview');
+const settingFieldMode = document.getElementById('settingFieldMode');
+const settingKeepAwake = document.getElementById('settingKeepAwake');
+const settingsOfflineStatus = document.getElementById('settingsOfflineStatus');
+
+const emergencyCoords = document.getElementById('emergencyCoords');
+const emergencyAccuracy = document.getElementById('emergencyAccuracy');
+const emergencyUpdated = document.getElementById('emergencyUpdated');
+const emergencyMapCenter = document.getElementById('emergencyMapCenter');
+const copyEmergencyBtn = document.getElementById('copyEmergencyBtn');
+const refreshEmergencyBtn = document.getElementById('refreshEmergencyBtn');
+
+const enableCompassBtn = document.getElementById('enableCompassBtn');
+const compassNeedle = document.getElementById('compassNeedle');
+const compassHeading = document.getElementById('compassHeading');
+const compassDirection = document.getElementById('compassDirection');
+
+const layerHealthStatus = document.getElementById('layerHealthStatus');
+const refreshLayerHealthBtn = document.getElementById('refreshLayerHealthBtn');
+
+const UTILITY_SETTINGS_KEY = 'ontarioTrails.utilitySettings.v1';
+
+let wakeLock = null;
+let compassEnabled = false;
+
+function loadUtilitySettings() {
+  try {
+    return JSON.parse(localStorage.getItem(UTILITY_SETTINGS_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveUtilitySettings() {
+  const s = {
+    offlinePreview: !!settingOfflinePreview?.checked,
+    fieldMode: !!settingFieldMode?.checked,
+    keepAwake: !!settingKeepAwake?.checked
+  };
+
+  try {
+    localStorage.setItem(UTILITY_SETTINGS_KEY, JSON.stringify(s));
+  } catch {}
+}
+
+function restoreUtilitySettings() {
+  const s = loadUtilitySettings();
+
+  if (settingOfflinePreview) settingOfflinePreview.checked = !!s.offlinePreview;
+  if (settingFieldMode) settingFieldMode.checked = !!s.fieldMode;
+  if (settingKeepAwake) settingKeepAwake.checked = !!s.keepAwake;
+
+  applyFieldMode();
+  applyWakeLock();
+  updateOfflineStatus();
+}
+
+function isUtilityTabId(id) {
+  return [
+    'tab-settings',
+    'tab-emergency',
+    'tab-compass',
+    'tab-health'
+  ].includes(id);
+}
+
+function showUtilityTabs(show = true) {
+  if (!utilityTabs || !utilityToggleBtn) return;
+
+  utilityTabs.hidden = !show;
+  utilityToggleBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  utilityToggleBtn.classList.toggle('active', show);
+}
+
+utilityToggleBtn?.addEventListener('click', () => {
+  const shouldShow = !!utilityTabs?.hidden;
+
+  showUtilityTabs(shouldShow);
+
+  if (shouldShow) {
+    // Opening utility tools: go to Settings by default.
+    activateTab('tab-settings');
+    updateOfflineStatus();
+    updateEmergencyInfo();
+    updateLayerHealth();
+  } else {
+    // Closing utility tools: if currently viewing a utility panel,
+    // return to the main Layers tab.
+    const activeUtilityPanel = document.querySelector('.tab-panel.active');
+
+    if (activeUtilityPanel && isUtilityTabId(activeUtilityPanel.id)) {
+      activateTab('tab-map');
+    }
+  }
+});
+
+
+function applyFieldMode() {
+  const on = !!settingFieldMode?.checked;
+
+  document.body.classList.toggle('field-mode', on);
+
+  // Optional conservative defaults for field mode.
+  // Keep these mild so the user does not feel like the app changed unexpectedly.
+  if (on) {
+    if (showCrosshair && !showCrosshair.checked) {
+      showCrosshair.checked = true;
+      updateCrosshair?.();
+    }
+  }
+}
+
+async function applyWakeLock() {
+  const wantsWake = !!settingKeepAwake?.checked;
+
+  if (!wantsWake) {
+    try {
+      await wakeLock?.release?.();
+    } catch {}
+    wakeLock = null;
+    return;
+  }
+
+  if (!('wakeLock' in navigator)) {
+    if (settingsOfflineStatus) {
+      settingsOfflineStatus.innerHTML = `<div class="status-item"><strong>Keep screen awake</strong><span class="status-warn">Not supported</span></div>`;
+    }
+    return;
+  }
+
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch (err) {
+    console.warn('Wake Lock failed:', err);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && settingKeepAwake?.checked) {
+    applyWakeLock();
+  }
+});
+
+settingOfflinePreview?.addEventListener('change', () => {
+  saveUtilitySettings();
+  updateOfflineStatus();
+});
+
+settingFieldMode?.addEventListener('change', () => {
+  saveUtilitySettings();
+  applyFieldMode();
+});
+
+settingKeepAwake?.addEventListener('change', () => {
+  saveUtilitySettings();
+  applyWakeLock();
+});
+
+function formatLatLng(lat, lng) {
+  if (!Number.isFinite(+lat) || !Number.isFinite(+lng)) return '—';
+  return `${(+lat).toFixed(6)}, ${(+lng).toFixed(6)}`;
+}
+
+function formatTime(ts) {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return '—';
+  }
+}
+
+function updateEmergencyInfo() {
+  const c = map.getCenter();
+
+  if (emergencyMapCenter) {
+    emergencyMapCenter.textContent = formatLatLng(c.lat, c.lng);
+  }
+
+  if (lastGeoFix) {
+    if (emergencyCoords) {
+      emergencyCoords.textContent = formatLatLng(lastGeoFix.lat, lastGeoFix.lng);
+    }
+
+    if (emergencyAccuracy) {
+      emergencyAccuracy.textContent = Number.isFinite(+lastGeoFix.accuracy)
+        ? `±${Math.round(+lastGeoFix.accuracy)} m`
+        : '—';
+    }
+
+    if (emergencyUpdated) {
+      emergencyUpdated.textContent = formatTime(lastGeoFix.timestamp);
+    }
+  } else {
+    if (emergencyCoords) emergencyCoords.textContent = 'No GPS fix yet';
+    if (emergencyAccuracy) emergencyAccuracy.textContent = '—';
+    if (emergencyUpdated) emergencyUpdated.textContent = '—';
+  }
+}
+
+map.on('moveend', updateEmergencyInfo);
+
+refreshEmergencyBtn?.addEventListener('click', updateEmergencyInfo);
+
+copyEmergencyBtn?.addEventListener('click', async () => {
+  updateEmergencyInfo();
+
+  const c = map.getCenter();
+
+  const lines = [
+    'Emergency location information',
+    '',
+    lastGeoFix
+      ? `Last GPS location: ${formatLatLng(lastGeoFix.lat, lastGeoFix.lng)}`
+      : 'Last GPS location: unavailable',
+    lastGeoFix && Number.isFinite(+lastGeoFix.accuracy)
+      ? `GPS accuracy: ±${Math.round(+lastGeoFix.accuracy)} m`
+      : 'GPS accuracy: unavailable',
+    lastGeoFix
+      ? `Last GPS update: ${formatTime(lastGeoFix.timestamp)}`
+      : 'Last GPS update: unavailable',
+    `Map centre: ${formatLatLng(c.lat, c.lng)}`
+  ];
+
+  const text = lines.join('\n');
+
+  try {
+    await navigator.clipboard.writeText(text);
+    if (copyEmergencyBtn) copyEmergencyBtn.textContent = 'Copied';
+    setTimeout(() => {
+      if (copyEmergencyBtn) copyEmergencyBtn.textContent = 'Copy emergency info';
+    }, 1200);
+  } catch {
+    alert(text);
+  }
+});
+
+function headingToCardinal(deg) {
+  if (!Number.isFinite(+deg)) return '—';
+
+  const dirs = [
+    'N', 'NNE', 'NE', 'ENE',
+    'E', 'ESE', 'SE', 'SSE',
+    'S', 'SSW', 'SW', 'WSW',
+    'W', 'WNW', 'NW', 'NNW'
+  ];
+
+  const idx = Math.round(((+deg % 360) / 22.5)) % 16;
+  return dirs[idx];
+}
+
+function updateCompass(heading) {
+  if (!Number.isFinite(+heading)) return;
+
+  const h = ((+heading % 360) + 360) % 360;
+
+  if (compassNeedle) {
+    compassNeedle.style.transform = `translate(-50%, -100%) rotate(${h}deg)`;
+  }
+
+  if (compassHeading) {
+    compassHeading.textContent = `${Math.round(h)}°`;
+  }
+
+  if (compassDirection) {
+    compassDirection.textContent = headingToCardinal(h);
+  }
+}
+
+function handleDeviceOrientation(event) {
+  // iOS Safari may expose webkitCompassHeading. Other browsers often use alpha.
+  const heading = Number.isFinite(event.webkitCompassHeading)
+    ? event.webkitCompassHeading
+    : Number.isFinite(event.alpha)
+      ? 360 - event.alpha
+      : null;
+
+  if (heading == null) return;
+  updateCompass(heading);
+}
+
+async function enableCompass() {
+  if (compassEnabled) return;
+
+  try {
+    if (
+      typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function'
+    ) {
+      const permission = await DeviceOrientationEvent.requestPermission();
+      if (permission !== 'granted') {
+        if (compassHeading) compassHeading.textContent = 'Compass permission denied';
+        return;
+      }
+    }
+
+    window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+    compassEnabled = true;
+
+    if (enableCompassBtn) enableCompassBtn.textContent = 'Compass enabled';
+    if (compassHeading) compassHeading.textContent = 'Move device to calibrate';
+  } catch (err) {
+    console.warn('Compass failed:', err);
+    if (compassHeading) compassHeading.textContent = 'Compass unavailable';
+  }
+}
+
+enableCompassBtn?.addEventListener('click', enableCompass);
+
+async function hasCache(name) {
+  if (!('caches' in window)) return false;
+  const names = await caches.keys();
+  return names.includes(name);
+}
+
+async function countCacheItems(name) {
+  if (!('caches' in window)) return null;
+
+  try {
+    const cache = await caches.open(name);
+    const keys = await cache.keys();
+    return keys.length;
+  } catch {
+    return null;
+  }
+}
+
+function layerIsOn(layer) {
+  try {
+    return !!layer && map.hasLayer(layer);
+  } catch {
+    return false;
+  }
+}
+
+function featureCount(layer) {
+  try {
+    if (!layer?.getLayers) return null;
+    return layer.getLayers().length;
+  } catch {
+    return null;
+  }
+}
+
+function statusRow(label, value, cls = 'status-ok') {
+  return `<div class="status-item"><strong>${label}</strong><span class="${cls}">${value}</span></div>`;
+}
+
+async function updateOfflineStatus() {
+  if (!settingsOfflineStatus) return;
+
+  const offlinePreview = !!settingOfflinePreview?.checked;
+
+  const appCached = await hasCache('ontario-trails-app-v1');
+  const dataCached = await hasCache('ontario-trails-offline-data-v1');
+  const imageryCount = await countCacheItems('ontario-trails-offline-imagery-v1');
+
+  const rows = [];
+
+  rows.push(statusRow(
+    'Offline Preview',
+    offlinePreview ? 'On' : 'Off',
+    offlinePreview ? 'status-warn' : 'status-ok'
+  ));
+
+  rows.push(statusRow(
+    'App shell cache',
+    appCached ? 'Available' : 'Not detected',
+    appCached ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Data cache',
+    dataCached ? 'Available' : 'Not detected',
+    dataCached ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Offline imagery tiles',
+    imageryCount == null ? 'Unknown' : `${imageryCount} cached`,
+    imageryCount > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Search / geocoding',
+    offlinePreview ? 'Internet required' : 'Available when online',
+    offlinePreview ? 'status-warn' : 'status-ok'
+  ));
+
+  settingsOfflineStatus.innerHTML = rows.join('');
+}
+
+async function updateLayerHealth() {
+  if (!layerHealthStatus) return;
+
+  const rows = [];
+
+  const trailsCount =
+    featureCount(typeof trailsVisualLayer !== 'undefined' ? trailsVisualLayer : null) ??
+    featureCount(typeof trailsLayer !== 'undefined' ? trailsLayer : null);
+
+  const osmTrailsCount =
+    featureCount(typeof trailsOSMLayer !== 'undefined' ? trailsOSMLayer : null);
+
+  const stockedCount =
+    featureCount(typeof stockedLayer !== 'undefined' ? stockedLayer : null);
+
+  const accessCount =
+    featureCount(typeof accessLayer !== 'undefined' ? accessLayer : null);
+
+  const imageryCached = await countCacheItems('ontario-trails-offline-imagery-v1');
+  const dataCached = await countCacheItems('ontario-trails-offline-data-v1');
+
+  rows.push(statusRow(
+    'Satellite imagery layer',
+    layerIsOn(imagery) ? 'On' : 'Off',
+    layerIsOn(imagery) ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Offline imagery cache',
+    imageryCached == null ? 'Unknown' : `${imageryCached} tile(s)`,
+    imageryCached > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'OTN trails',
+    trailsCount && trailsCount > 0 ? `${trailsCount} feature layer(s)` : 'Not loaded yet',
+    trailsCount && trailsCount > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'OSM trails',
+    osmTrailsCount && osmTrailsCount > 0 ? `${osmTrailsCount} feature(s)` : 'Not loaded yet',
+    osmTrailsCount && osmTrailsCount > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Stocked lakes',
+    stockedCount && stockedCount > 0 ? `${stockedCount} feature(s)` : 'Not loaded yet',
+    stockedCount && stockedCount > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Water access points',
+    accessCount && accessCount > 0 ? `${accessCount} feature(s)` : 'Not loaded yet',
+    accessCount && accessCount > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Data cache items',
+    dataCached == null ? 'Unknown' : `${dataCached} cached item(s)`,
+    dataCached > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'Current map zoom',
+    `Z${map.getZoom()}`,
+    'status-ok'
+  ));
+
+  rows.push(statusRow(
+    'Last checked',
+    new Date().toLocaleTimeString(),
+    'status-ok'
+  ));
+
+  layerHealthStatus.innerHTML = rows.join('');
+}
+
+refreshLayerHealthBtn?.addEventListener('click', updateLayerHealth);
+
+map.on('layeradd layerremove zoomend', () => {
+  if (!utilityTabs?.hidden) {
+    updateLayerHealth();
+    updateOfflineStatus();
+  }
+});
+
+restoreUtilitySettings();
+updateEmergencyInfo();
