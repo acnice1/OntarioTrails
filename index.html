@@ -4,6 +4,11 @@
   <meta charset="utf-8" />
   <title>Ontario Trails — GPS Web Map</title>
 
+  <!-- CACHE BUSTER: change this one value each release -->
+  <script>
+    window.APP_VERSION = '20260511-1945';
+  </script>
+
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
 
@@ -19,9 +24,15 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-search@4.0.0/dist/leaflet-search.min.css" />
 
-  <!-- App CSS -->
-  <link rel="stylesheet" href="./app.css" />
+  <!-- App CSS with cache busting -->
+  <script>
+    const appCss = document.createElement('link');
+    appCss.rel = 'stylesheet';
+    appCss.href = './app.css?v=' + encodeURIComponent(window.APP_VERSION || 'dev');
+    document.head.appendChild(appCss);
+  </script>
 </head>
+
 <body>
   <!-- Map -->
   <div id="map"></div>
@@ -34,79 +45,83 @@
 
   <!-- Controls panel -->
   <aside id="controlPanel" class="control-panel open main-tabs-mode" aria-hidden="false">
-<div class="panel-header">
-  <h2>Map Controls</h2>
+    <div class="panel-header">
+      <h2>Map Controls</h2>
 
-  <div class="panel-header-actions">
-    <button id="utilityToggleBtn" class="icon-btn" title="Settings and field tools" aria-expanded="false">
-      ⚙️
-    </button>
-    <button id="closePanelBtn" class="icon-btn" title="Close">✕</button>
-  </div>
-</div>
+      <div class="panel-header-actions">
+        <button id="utilityToggleBtn" class="icon-btn" title="Settings and field tools" aria-expanded="false">
+          ⚙️
+        </button>
+        <button id="closePanelBtn" class="icon-btn" title="Close">✕</button>
+      </div>
+    </div>
 
     <!-- Tabs -->
-<div id="mainTabs" class="tabs main-tabs">
-  <button class="tab-btn active" data-tab="tab-map">
-    <span class="ico" aria-hidden="true">
-      <!-- map icon -->
-      <svg viewBox="0 0 24 24" fill="none"><path d="M9 5l6 2 6-2v14l-6 2-6-2-6 2V7l6-2z" stroke="currentColor" stroke-width="1.6"/></svg>
-    </span>
-    Layers
-  </button>
+    <div id="mainTabs" class="tabs main-tabs">
+      <button class="tab-btn active" data-tab="tab-map">
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M9 5l6 2 6-2v14l-6 2-6-2-6 2V7l6-2z" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+        </span>
+        Layers
+      </button>
 
-  <button class="tab-btn" data-tab="tab-pins">
-    <span class="ico" aria-hidden="true">
-      <!-- pin icon -->
-      <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s6-6 6-10a6 6 0 10-12 0c0 4 6 10 6 10z" stroke="currentColor" stroke-width="1.6"/></svg>
-    </span>
-    Pins
-  </button>
+      <button class="tab-btn" data-tab="tab-pins">
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 21s6-6 6-10a6 6 0 10-12 0c0 4 6 10 6 10z" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+        </span>
+        Pins
+      </button>
 
-    <button class="tab-btn" data-tab="tab-track">
-    <span class="ico" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/></svg>
-    </span>
-    Track
-  </button>
+      <button class="tab-btn" data-tab="tab-track">
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+        </span>
+        Track
+      </button>
 
+      <button class="tab-btn" data-tab="tab-search">
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+      </button>
+    </div>
 
-  <button class="tab-btn" data-tab="tab-search">
-    <span class="ico" aria-hidden="true">
-      <!-- search icon -->
-      <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/><path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-    </span>
-    
-  </button>
-</div>
+    <div id="utilityTabs" class="tabs utility-tabs" hidden>
+      <button class="tab-btn utility-tab-btn" data-tab="tab-settings">
+        <span class="ico" aria-hidden="true">⚙️</span>
+        Settings
+      </button>
 
-<div id="utilityTabs" class="tabs utility-tabs" hidden>
-  <button class="tab-btn utility-tab-btn" data-tab="tab-settings">
-    <span class="ico" aria-hidden="true">⚙️</span>
-    Settings
-  </button>
+      <button class="tab-btn utility-tab-btn" data-tab="tab-emergency">
+        <span class="ico" aria-hidden="true">🆘</span>
+        Emergency
+      </button>
 
-  <button class="tab-btn utility-tab-btn" data-tab="tab-emergency">
-    <span class="ico" aria-hidden="true">🆘</span>
-    Emergency
-  </button>
+      <button class="tab-btn utility-tab-btn" data-tab="tab-compass">
+        <span class="ico" aria-hidden="true">🧭</span>
+        Compass
+      </button>
 
-  <button class="tab-btn utility-tab-btn" data-tab="tab-compass">
-    <span class="ico" aria-hidden="true">🧭</span>
-    Compass
-  </button>
-
-  <button class="tab-btn utility-tab-btn" data-tab="tab-health">
-    <span class="ico" aria-hidden="true">📊</span>
-    Layer Health
-  </button>
-</div>
-
+      <button class="tab-btn utility-tab-btn" data-tab="tab-health">
+        <span class="ico" aria-hidden="true">📊</span>
+        Layer Health
+      </button>
+    </div>
 
     <!-- ===== Tab: Layers ===== -->
     <section id="tab-map" class="tab-panel active" aria-label="Layers">
       <section class="panel-section">
         <h3>Filters</h3>
+
         <div class="filters" id="filters">
           <label><input type="checkbox" id="showBase" checked> Base map</label>
           <label><input type="checkbox" id="showImagery"> Satellite Imagery (WMTS)</label>
@@ -134,8 +149,9 @@
         <h3>Offline Map Area</h3>
 
         <div class="row">
-  <input id="offlineAreaName" type="text" placeholder="Area name, e.g., Sullivan Lake" style="width:100%;">
-</div>
+          <input id="offlineAreaName" type="text" placeholder="Area name, e.g., Sullivan Lake" style="width:100%;">
+        </div>
+
         <div class="row">
           <label style="display:flex;align-items:center;gap:.4rem;">
             Min zoom
@@ -182,46 +198,56 @@
             <span id="elevMaxTick">700</span>
           </div>
           <div class="contour-note" id="contourHint">Zoom to <b>11+</b> to load contours</div>
-          <div class="contour-note">Version 20260511.1916</div>
+          <div class="contour-note">Version <span id="appVersionLabel"></span></div>
         </div>
       </section>
     </section>
+
     <!-- ===== Tab: Pins ===== -->
     <section id="tab-pins" class="tab-panel" aria-label="Pins">
       <section class="panel-section">
         <h3>Pin Drops</h3>
+
         <div class="row">
           <select id="pinType">
-            <option>Camping</option><option>Water</option><option>Viewpoint</option>
-            <option>Hazard</option><option>Parking</option><option>Other</option>
+            <option>Camping</option>
+            <option>Water</option>
+            <option>Viewpoint</option>
+            <option>Hazard</option>
+            <option>Parking</option>
+            <option>Other</option>
           </select>
+
           <input id="pinLabel" type="text" placeholder="Label (e.g., Camp A)" />
         </div>
+
         <div class="row">
           <button class="btn" id="addPinBtn">➕ Add pin here</button>
           <button class="btn" id="exportPinsBtn">⬇️ Download pins (GPX)</button>
         </div>
+
         <div class="row">
           <label class="btn" for="importPinsInput">⬆️ Upload pins (JSON/GPX)</label>
           <input id="importPinsInput" type="file" accept=".json,.geojson,.gpx" />
           <span id="pinCount" class="muted"></span>
         </div>
       </section>
-      </section>
+    </section>
 
     <!-- ===== Tab: Track Recorder ===== -->
-     <section id="tab-track" class="tab-panel" aria-label="Track">
+    <section id="tab-track" class="tab-panel" aria-label="Track">
       <section class="panel-section">
         <h3>Track Recorder</h3>
+
         <div class="row">
           <button class="btn" id="trackStartBtn">● Start</button>
-          
           <button class="btn" id="trackSaveBtn" disabled>💾 Save GPX</button>
         </div>
       </section>
 
       <section class="panel-section">
         <h3>Map Actions</h3>
+
         <div class="row">
           <button class="btn" id="locateBtn">📍 Locate</button>
           <button class="btn" id="followBtn">▶️ Follow: Off</button>
@@ -231,163 +257,163 @@
 
       <section class="panel-section">
         <h3>Plot Route</h3>
-        <div class="row">
 
+        <div class="row">
           <button class="btn" id="measureToggleBtn">🧭 Route: Off</button>
           <button class="btn" id="measureUndoBtn">↶ Undo Last</button>
           <button class="btn" id="measureClearBtn">✖ Clear</button>
         </div>
+
         <div class="row">
-  <button class="btn" id="exportRouteBtn">⬇ Export Route</button>
-  <label class="btn" for="importRouteInput">⬆ Import Route</label>
-  <input id="importRouteInput" type="file" accept=".json,application/json" hidden>
-</div>
+          <button class="btn" id="exportRouteBtn">⬇ Export Route</button>
+          <label class="btn" for="importRouteInput">⬆ Import Route</label>
+          <input id="importRouteInput" type="file" accept=".json,application/json" hidden>
+        </div>
 
         <div id="measureStatus" class="muted">0 points · 0.00 km</div>
       </section>
-
     </section>
 
     <!-- ===== Tab: Search ===== -->
     <section id="tab-search" class="tab-panel" aria-label="Search">
       <section class="panel-section">
         <h3>Search (Ontario / Quebec)</h3>
+
         <div class="search-row">
           <input id="searchInput" type="text" placeholder="Address, lake, park…" autocomplete="off">
           <button class="btn" id="searchBtn">Search</button>
         </div>
+
         <div id="searchResults" class="search-results" role="listbox" aria-label="Results"></div>
       </section>
     </section>
+
     <!-- ===== Utility Tab: Settings ===== -->
-<section id="tab-settings" class="tab-panel" aria-label="Settings">
-  <section class="panel-section">
-    <h3>Settings</h3>
+    <section id="tab-settings" class="tab-panel" aria-label="Settings">
+      <section class="panel-section">
+        <h3>Settings</h3>
 
-    <label class="setting-row">
-  <input type="checkbox" id="showCrosshair" checked>
-  Show crosshair
-</label>
-<div class="muted setting-help">
-  Shows a centre marker for dropping pins, checking position, and planning routes.
-</div>
+        <label class="setting-row">
+          <input type="checkbox" id="showCrosshair" checked>
+          Show crosshair
+        </label>
+        <div class="muted setting-help">
+          Shows a centre marker for dropping pins, checking position, and planning routes.
+        </div>
 
-<label class="setting-row">
-  <input type="checkbox" id="showOfflineAreas" checked>
-  Show downloaded area boxes
-</label>
-<div class="muted setting-help">
-  Shows the map areas that have been downloaded for offline satellite imagery.
-</div>
+        <label class="setting-row">
+          <input type="checkbox" id="showOfflineAreas" checked>
+          Show downloaded area boxes
+        </label>
+        <div class="muted setting-help">
+          Shows the map areas that have been downloaded for offline satellite imagery.
+        </div>
 
-    <label class="setting-row">
-      <input type="checkbox" id="settingOfflinePreview">
-      Offline Preview
-    </label>
-    <div class="muted setting-help">
-      Tests what should be available without a network connection.
-    </div>
+        <label class="setting-row">
+          <input type="checkbox" id="settingOfflinePreview">
+          Offline Preview
+        </label>
+        <div class="muted setting-help">
+          Tests what should be available without a network connection.
+        </div>
 
-    <label class="setting-row">
-      <input type="checkbox" id="settingFieldMode">
-      Field Mode
-    </label>
-    <div class="muted setting-help">
-      Simplifies the app for outdoor use.
-    </div>
+        <label class="setting-row">
+          <input type="checkbox" id="settingFieldMode">
+          Field Mode
+        </label>
+        <div class="muted setting-help">
+          Simplifies the app for outdoor use.
+        </div>
 
-    <label class="setting-row">
-      <input type="checkbox" id="settingKeepAwake">
-      Keep screen awake
-    </label>
-    <div class="muted setting-help">
-      Uses the browser Wake Lock API where supported.
-    </div>
-  </section>
+        <label class="setting-row">
+          <input type="checkbox" id="settingKeepAwake">
+          Keep screen awake
+        </label>
+        <div class="muted setting-help">
+          Uses the browser Wake Lock API where supported.
+        </div>
+      </section>
 
-  <section class="panel-section">
-    <h3>Offline Status</h3>
-    <div id="settingsOfflineStatus" class="status-list">
-      Checking offline status…
-    </div>
-  </section>
-</section>
+      <section class="panel-section">
+        <h3>Offline Status</h3>
+        <div id="settingsOfflineStatus" class="status-list">
+          Checking offline status…
+        </div>
+      </section>
+    </section>
 
+    <!-- ===== Utility Tab: Emergency ===== -->
+    <section id="tab-emergency" class="tab-panel" aria-label="Emergency Information">
+      <section class="panel-section">
+        <h3>Emergency Info</h3>
 
-<!-- ===== Utility Tab: Emergency ===== -->
-<section id="tab-emergency" class="tab-panel" aria-label="Emergency Information">
-  <section class="panel-section">
-    <h3>Emergency Info</h3>
+        <div class="emergency-card">
+          <div class="emergency-label">Current / last known location</div>
+          <div id="emergencyCoords" class="emergency-value">No GPS fix yet</div>
 
-    <div class="emergency-card">
-      <div class="emergency-label">Current / last known location</div>
-      <div id="emergencyCoords" class="emergency-value">No GPS fix yet</div>
+          <div class="emergency-label">Accuracy</div>
+          <div id="emergencyAccuracy" class="emergency-value">—</div>
 
-      <div class="emergency-label">Accuracy</div>
-      <div id="emergencyAccuracy" class="emergency-value">—</div>
+          <div class="emergency-label">Last updated</div>
+          <div id="emergencyUpdated" class="emergency-value">—</div>
 
-      <div class="emergency-label">Last updated</div>
-      <div id="emergencyUpdated" class="emergency-value">—</div>
+          <div class="emergency-label">Map centre</div>
+          <div id="emergencyMapCenter" class="emergency-value">—</div>
+        </div>
 
-      <div class="emergency-label">Map centre</div>
-      <div id="emergencyMapCenter" class="emergency-value">—</div>
-    </div>
+        <div class="row">
+          <button class="btn" id="copyEmergencyBtn">Copy emergency info</button>
+          <button class="btn" id="refreshEmergencyBtn">Refresh</button>
+        </div>
 
-    <div class="row">
-      <button class="btn" id="copyEmergencyBtn">Copy emergency info</button>
-      <button class="btn" id="refreshEmergencyBtn">Refresh</button>
-    </div>
+        <div class="muted setting-help">
+          Use this to quickly copy coordinates for a call, text, or radio message.
+        </div>
+      </section>
+    </section>
 
-    <div class="muted setting-help">
-      Use this to quickly copy coordinates for a call, text, or radio message.
-    </div>
-  </section>
-</section>
+    <!-- ===== Utility Tab: Compass ===== -->
+    <section id="tab-compass" class="tab-panel" aria-label="Compass">
+      <section class="panel-section">
+        <h3>Compass</h3>
 
+        <div class="compass-wrap">
+          <div class="compass-dial">
+            <div class="compass-needle" id="compassNeedle"></div>
+            <div class="compass-n">N</div>
+            <div class="compass-e">E</div>
+            <div class="compass-s">S</div>
+            <div class="compass-w">W</div>
+          </div>
 
-<!-- ===== Utility Tab: Compass ===== -->
-<section id="tab-compass" class="tab-panel" aria-label="Compass">
-  <section class="panel-section">
-    <h3>Compass</h3>
+          <div id="compassHeading" class="compass-heading">Heading unavailable</div>
+          <div id="compassDirection" class="muted">—</div>
+        </div>
 
-    <div class="compass-wrap">
-      <div class="compass-dial">
-        <div class="compass-needle" id="compassNeedle"></div>
-        <div class="compass-n">N</div>
-        <div class="compass-e">E</div>
-        <div class="compass-s">S</div>
-        <div class="compass-w">W</div>
-      </div>
+        <div class="row">
+          <button class="btn" id="enableCompassBtn">Enable compass</button>
+        </div>
 
-      <div id="compassHeading" class="compass-heading">Heading unavailable</div>
-      <div id="compassDirection" class="muted">—</div>
-    </div>
+        <div class="muted setting-help">
+          Compass support depends on browser, device sensors, and permissions.
+        </div>
+      </section>
+    </section>
 
-    <div class="row">
-      <button class="btn" id="enableCompassBtn">Enable compass</button>
-    </div>
+    <!-- ===== Utility Tab: Layer Health ===== -->
+    <section id="tab-health" class="tab-panel" aria-label="Data Freshness and Layer Health">
+      <section class="panel-section">
+        <h3>Data Freshness / Layer Health</h3>
 
-    <div class="muted setting-help">
-      Compass support depends on browser, device sensors, and permissions.
-    </div>
-  </section>
-</section>
+        <div id="layerHealthStatus" class="status-list">
+          Checking layers…
+        </div>
 
-
-<!-- ===== Utility Tab: Layer Health ===== -->
-<section id="tab-health" class="tab-panel" aria-label="Data Freshness and Layer Health">
-  <section class="panel-section">
-    <h3>Data Freshness / Layer Health</h3>
-
-    <div id="layerHealthStatus" class="status-list">
-      Checking layers…
-    </div>
-
-    <div class="row">
-      <button class="btn" id="refreshLayerHealthBtn">Refresh layer health</button>
-    </div>
-  </section>
-</section>
+        <div class="row">
+          <button class="btn" id="refreshLayerHealthBtn">Refresh layer health</button>
+        </div>
+      </section>
+    </section>
   </aside>
 
   <!-- Vendor JS -->
@@ -396,43 +422,53 @@
   <script defer src="https://unpkg.com/leaflet-search@4.0.0/dist/leaflet-search.min.js"></script>
   <script defer src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
 
-  <!-- App JS -->
-   <!-- Cache-busting query param with build timestamp -->
-  <script defer src="./app.js?v=20260511-1918"></script>
-
+  <!-- App JS + version label -->
   <script>
-  // PWA Service Worker registration and auto-update activation
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', async () => {
-      try {
-        const reg = await navigator.serviceWorker.register('./service-worker.js');
-        console.info('Service Worker registered:', reg.scope);
-
-        // Listen for updates
-        reg.addEventListener('updatefound', () => {
-          const newSW = reg.installing;
-          if (!newSW) return;
-
-          newSW.addEventListener('statechange', () => {
-            if (newSW.state === 'installed') {
-              if (navigator.serviceWorker.controller) {
-                console.info('New version available — activating...');
-                newSW.postMessage('SKIP_WAITING');
-                // Optional: prompt user or reload immediately
-                setTimeout(() => window.location.reload(), 800);
-              } else {
-                console.info('Service Worker installed for the first time.');
-              }
-            }
-          });
-        });
-      } catch (err) {
-        console.warn('Service Worker registration failed:', err);
+    window.addEventListener('DOMContentLoaded', function () {
+      // Show app version in the UI
+      const versionLabel = document.getElementById('appVersionLabel');
+      if (versionLabel) {
+        versionLabel.textContent = window.APP_VERSION || 'dev';
       }
+
+      // Load app.js using the same cache-busting version
+      const script = document.createElement('script');
+      script.src = './app.js?v=' + encodeURIComponent(window.APP_VERSION || 'dev');
+      script.defer = true;
+      document.body.appendChild(script);
     });
-  }
-</script>
+  </script>
 
+  <!-- PWA Service Worker registration and auto-update activation -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        try {
+          const reg = await navigator.serviceWorker.register('./service-worker.js');
+          console.info('Service Worker registered:', reg.scope);
 
+          // Listen for updates
+          reg.addEventListener('updatefound', () => {
+            const newSW = reg.installing;
+            if (!newSW) return;
+
+            newSW.addEventListener('statechange', () => {
+              if (newSW.state === 'installed') {
+                if (navigator.serviceWorker.controller) {
+                  console.info('New version available — activating...');
+                  newSW.postMessage('SKIP_WAITING');
+                  setTimeout(() => window.location.reload(), 800);
+                } else {
+                  console.info('Service Worker installed for the first time.');
+                }
+              }
+            });
+          });
+        } catch (err) {
+          console.warn('Service Worker registration failed:', err);
+        }
+      });
+    }
+  </script>
 </body>
 </html>
