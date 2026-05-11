@@ -122,7 +122,6 @@ input[type="range"]::-moz-range-thumb{
 /* ========================================================================== */
 .tabs{
   position: sticky; top: 0; z-index: 1;
-  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
   gap:6px; padding:8px 10px 0;
   background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,0));
   backdrop-filter: blur(4px);
@@ -491,52 +490,6 @@ input[type="range"]::-moz-range-thumb{
   color: #1472ff;
 }
 
-/* ==========================================================================
-   Final tab-row visibility model
-   ========================================================================== */
-
-/* Hard hide anything explicitly hidden */
-[hidden] {
-  display: none !important;
-}
-
-/* Default: both tab rows are hidden unless the panel mode says otherwise */
-#mainTabs,
-#utilityTabs {
-  display: none !important;
-}
-
-/* Shared visible tab-row layout */
-.control-panel.main-tabs-mode #mainTabs,
-.control-panel.utility-tabs-mode #utilityTabs {
-  display: flex !important;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  gap: 6px;
-  padding: 8px 10px 6px;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-}
-
-/* Explicitly hide the opposite row in each mode */
-.control-panel.main-tabs-mode #utilityTabs {
-  display: none !important;
-}
-
-.control-panel.utility-tabs-mode #mainTabs {
-  display: none !important;
-}
-
-.tab-btn {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-/* Keep utility tabs compact enough on mobile */
-.utility-tab-btn {
-  font-size: 13px;
-}
 
 /* Mobile: make tab row easier to swipe and prevent clipping */
 @media (max-width: 768px) {
@@ -608,6 +561,50 @@ input[type="range"]::-moz-range-thumb{
   }
 }
 
-  /* Pull the label back inside the top-right corner */
-  transform: translate(-100%, 0);
+/* ==========================================================================
+   Mobile-safe forced tab visibility
+   JS is the source of truth; this is only the fallback.
+   ========================================================================== */
+
+#mainTabs[hidden],
+#utilityTabs[hidden],
+.tab-panel[hidden] {
+  display: none !important;
+}
+
+.control-panel.main-tabs-mode #mainTabs {
+  display: flex !important;
+}
+
+.control-panel.main-tabs-mode #utilityTabs {
+  display: none !important;
+}
+
+.control-panel.utility-tabs-mode #utilityTabs {
+  display: flex !important;
+}
+
+.control-panel.utility-tabs-mode #mainTabs {
+  display: none !important;
+}
+
+#mainTabs,
+#utilityTabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tab-panel {
+  display: none !important;
+}
+
+.tab-panel.active {
+  display: block !important;
+}
+
+.tab-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
