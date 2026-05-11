@@ -2,11 +2,16 @@
 // Robust caching + offline fallback + controlled preload support
 
 // ===== Versioned caches ======================================================
-const VERSION = 'v4';
+importScripts('./app-version.js');
+
+const VERSION = globalThis.ONTARIO_TRAILS_VERSION || 'dev';
 
 const STATIC_CACHE = `ontario-trails-static-${VERSION}`;
 const DATA_CACHE   = `ontario-trails-data-${VERSION}`;
 const TILE_CACHE   = `ontario-trails-tiles-${VERSION}`;
+
+const USER_OFFLINE_IMAGERY_CACHE = 'ontario-trails-offline-imagery-v1';
+const USER_OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 
 // Limit sizes to avoid unbounded growth.
 // Tune these based on available device storage and your expected usage.
@@ -21,9 +26,11 @@ const LIMITS = {
 const APP_SHELL = [
   './',
   './index.html',
+  './app-version.js',
   './app.css',
   './app.js',
   './manifest.webmanifest'
+
   // Optional if you ship icons:
   // './icons/icon-192.png',
   // './icons/icon-512.png'
@@ -240,11 +247,15 @@ self.addEventListener('activate', event => {
       }
     }
 
-    const keep = new Set([
-      STATIC_CACHE,
-      DATA_CACHE,
-      TILE_CACHE
-    ]);
+const keep = new Set([
+  STATIC_CACHE,
+  DATA_CACHE,
+  TILE_CACHE,
+
+  // User-managed offline downloads — do not delete on app update.
+  USER_OFFLINE_IMAGERY_CACHE,
+  USER_OFFLINE_DATA_CACHE
+]);
 
     const keys = await caches.keys();
 
@@ -409,6 +420,12 @@ self.addEventListener('fetch', event => {
     event.respondWith(networkFirst(req, DATA_CACHE, 8000));
     return;
   }
+
+  // App version should be checked from network first so update detection is reliable.
+  if (isSameOrigin(url) && url.pathname.endsWith('/app-version.js')) {
+    event.respondWith(networkFirst(req, STATIC_CACHE, 3000));
+  return;
+}
 
   // 3) Same-origin static: cache first.
   if (isStaticURL(url)) {

@@ -915,6 +915,8 @@ showTrailsOSM?.addEventListener('change', async () => {
 // ---------------------------------------------------------------------------
 // Offline Area Download: Satellite imagery tiles + OTN GeoJSON
 // ---------------------------------------------------------------------------
+// const CACHE_VERSION = window.APP_VERSION || 'dev';
+
 const OFFLINE_IMAGERY_CACHE = 'ontario-trails-offline-imagery-v1';
 const OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 const OFFLINE_AREAS_KEY     = 'ontarioTrails.offlineAreas.v1';
@@ -3331,9 +3333,9 @@ async function updateOfflineStatus() {
 
   const offlinePreview = !!settingOfflinePreview?.checked;
 
-  const appCached = await hasCache('ontario-trails-app-v1');
-  const dataCached = await hasCache('ontario-trails-offline-data-v1');
-  const imageryCount = getStoredOfflineTileCount();
+ const appCached = await hasCache(`ontario-trails-static-${window.APP_VERSION || 'dev'}`);
+const dataCached = await hasCache(OFFLINE_DATA_CACHE);
+const imageryCount = getStoredOfflineTileCount();
 
   const rows = [];
 
@@ -3389,7 +3391,8 @@ async function updateLayerHealth() {
     featureCount(typeof accessLayer !== 'undefined' ? accessLayer : null);
 
  const imageryCached = getStoredOfflineTileCount();
-const dataCached = await countCacheItems('ontario-trails-offline-data-v1');
+
+ const dataCached = await countCacheItems(OFFLINE_DATA_CACHE);
 
   rows.push(statusRow(
     'Satellite imagery layer',
