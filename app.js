@@ -1015,7 +1015,7 @@ function renderOfflineAreas() {
       dashArray: '8 6',
       fillColor: '#1472ff',
       fillOpacity: 0.10,
-      interactive: true
+      interactive: false
     }).addTo(offlineAreasLayer);
 
     const label = area.name || `Offline area ${idx + 1}`;
@@ -1023,31 +1023,32 @@ function renderOfflineAreas() {
       ? new Date(area.createdAt).toLocaleDateString()
       : 'Unknown date';
 
-    rect.bindPopup(
+  /*  rect.bindPopup(
       `<div style="min-width:220px">
         <div style="font-weight:700;margin-bottom:6px">${label}</div>
         <div><b>Downloaded:</b> ${date}</div>
         <div><b>Zoom:</b> ${area.minZ}–${area.maxZ}</div>
         <div><b>Tiles:</b> ${area.tileCount ?? '—'}</div>
       </div>`
-    );
+    ); */
 
-const labelLatLng = leafletBounds.getNorthEast();
+const labelText = `${label} · Z${area.minZ}–${area.maxZ}`;
 
-L.marker(labelLatLng, {
+L.marker(leafletBounds.getNorthEast(), {
   interactive: false,
   keyboard: false,
   icon: L.divIcon({
     className: 'offline-area-label-icon',
-    html: `<div class="offline-area-label">${esc(label)} · Z${area.minZ}–${area.maxZ}</div>`,
+    html: `<div class="offline-area-label">${esc(labelText)}</div>`,
 
-    // Give Leaflet a real box so mobile rendering is stable.
-    // Anchor at the top-right, so the label sits inside the downloaded area.
-    iconSize: [180, 28],
-    iconAnchor: [180, 0]
+    // Anchor the marker at the top-right corner,
+    // but pull the label left and slightly down so it sits inside the box.
+    iconSize: [160, 26],
+    iconAnchor: [168, -8]
   })
 }).addTo(offlineAreasLayer);
-  });
+
+});
 
   console.info(`Rendered ${areas.length} offline area box(es).`);
 }
