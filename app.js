@@ -570,59 +570,128 @@ merged.sort((a, b) => {
 
 
   //
-  // Tabs: simple show/hide
-  // Persist last-opened tab in localStorage
+  // ---------------------------------------------------------------------------
+// Tabs: robust mobile-safe tab system
+// ---------------------------------------------------------------------------
 
-const mainTabs   = document.getElementById('mainTabs');
+const mainTabs = document.getElementById('mainTabs');
 const utilityTabs = document.getElementById('utilityTabs');
 
+const MAIN_TAB_IDS = [
+  'tab-map',
+  'tab-pins',
+  'tab-track',
+  'tab-search'
+];
+
+const UTILITY_TAB_IDS = [
+  'tab-settings',
+  'tab-emergency',
+  'tab-compass',
+  'tab-health'
+];
+
 const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
-const tabPanels  = Array.from(document.querySelectorAll('.tab-panel'));
+const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
 
-  function activateTab(id){
- 
-    tabButtons.forEach(b => {
-    const isMatch = b.dataset.tab === id;
-    b.classList.toggle('active', isMatch);
-  });
-
-    tabPanels.forEach(p => {
-    const on = (p.id === id);
-    p.classList.toggle('active', on);
-    // Optional: if you use [hidden] in your CSS, you can sync that too:
-    if (on) p.removeAttribute?.('hidden'); else p.setAttribute?.('hidden', '');
-  });
-
-  // Persist last tab
-  try { localStorage.setItem('ontarioTrails.lastTab', id); } catch {}
-
-  // If the visible panel contains the map, fix Leaflet sizing
-  const activePanel = document.getElementById(id);
-  if (activePanel && (activePanel.querySelector('#map') || /map|layers/i.test(id))) {
-    // slight delay lets the panel finish animating before reflow
-    setTimeout(() => { try { map.invalidateSize(); } catch {} }, 60);
-  }
+function forceShow(el, displayValue = 'block') {
+  if (!el) return;
+  el.hidden = false;
+  el.removeAttribute('hidden');
+  el.style.setProperty('display', displayValue, 'important');
 }
 
-  
-  tabButtons.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
+function forceHide(el) {
+  if (!el) return;
+  el.hidden = true;
+  el.setAttribute('hidden', '');
+  el.style.setProperty('display', 'none', 'important');
+}
 
-  (function restoreLastTab(){
+function isUtilityTabId(id) {
+  return UTILITY_TAB_IDS.includes(id);
+}
+
+function setTabMode(mode = 'main') {
+  if (!panel) return;
+
+  const utilityMode = mode === 'utility';
+
+  panel.classList.toggle('utility-tabs-mode', utilityMode);
+  panel.classList.toggle('main-tabs-mode', !utilityMode);
+
+  // Hard-force tab row visibility. This avoids mobile/PWA CSS weirdness.
+  if (utilityMode) {
+    forceHide(mainTabs);
+    forceShow(utilityTabs, 'flex');
+  } else {
+    forceShow(mainTabs, 'flex');
+    forceHide(utilityTabs);
+  }
+
+  utilityToggleBtn?.setAttribute('aria-expanded', utilityMode ? 'true' : 'false');
+  utilityToggleBtn?.classList.toggle('active', utilityMode);
+}
+
+function activateTab(id) {
+  const target = document.getElementById(id);
+  if (!target) return;
+
+  const utilityTab = isUtilityTabId(id);
+  setTabMode(utilityTab ? 'utility' : 'main');
+
+  tabButtons.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === id);
+  });
+
+  tabPanels.forEach(panelEl => {
+    const on = panelEl.id === id;
+    panelEl.classList.toggle('active', on);
+
+    if (on) {
+      forceShow(panelEl, 'block');
+    } else {
+      forceHide(panelEl);
+    }
+  });
+
+  try {
+    localStorage.setItem('ontarioTrails.lastTab', id);
+  } catch {}
+
+  setTimeout(() => {
+    try { map.invalidateSize(); } catch {}
+  }, 60);
+}
+
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    activateTab(btn.dataset.tab);
+  });
+});
+
+utilityToggleBtn?.addEventListener('click', () => {
+  const currentlyUtility = panel?.classList.contains('utility-tabs-mode');
+
+  if (currentlyUtility) {
+    activateTab('tab-map');
+  } else {
+    activateTab('tab-settings');
+    try { updateOfflineStatus?.(); } catch {}
+    try { updateEmergencyInfo?.(); } catch {}
+    try { updateLayerHealth?.(); } catch {}
+    try { renderOfflineAreas?.(); } catch {}
+  }
+});
+
+(function restoreLastTab() {
   const saved = localStorage.getItem('ontarioTrails.lastTab') || 'tab-map';
 
-  const utilityIds = [
-    'tab-settings',
-    'tab-emergency',
-    'tab-compass',
-    'tab-health'
-  ];
+  // Safer default: always start in the main controls unless the user explicitly taps settings.
+  const initialTab = UTILITY_TAB_IDS.includes(saved) ? 'tab-map' : saved;
 
-  const id = utilityIds.includes(saved) ? 'tab-map' : saved;
-
-  setTabMode('main');
-  activateTab(id);
+  activateTab(initialTab);
 })();
-
 
   showBaseCk?.addEventListener('change', () => {
     showBaseCk.checked ? base.addTo(map) : map.removeLayer(base);
@@ -3004,61 +3073,6 @@ function restoreUtilitySettings() {
   applyWakeLock();
   updateOfflineStatus();
 }
-
-function isUtilityTabId(id) {
-  return [
-    'tab-settings',
-    'tab-emergency',
-    'tab-compass',
-    'tab-health'
-  ].includes(id);
-}
-
-function setTabMode(mode = 'main') {
-  if (!panel) return;
-
-  const utilityMode = mode === 'utility';
-
-  panel.classList.toggle('utility-tabs-mode', utilityMode);
-  panel.classList.toggle('main-tabs-mode', !utilityMode);
-
-  // Use both class-based CSS and hidden attributes.
-  // This makes mobile/PWA behaviour much less fragile.
-  if (mainTabs) {
-    mainTabs.hidden = utilityMode;
-    mainTabs.setAttribute('aria-hidden', utilityMode ? 'true' : 'false');
-  }
-
-  if (utilityTabs) {
-    utilityTabs.hidden = !utilityMode;
-    utilityTabs.setAttribute('aria-hidden', utilityMode ? 'false' : 'true');
-  }
-
-  utilityToggleBtn?.setAttribute('aria-expanded', utilityMode ? 'true' : 'false');
-  utilityToggleBtn?.classList.toggle('active', utilityMode);
-}
-
-function showUtilityTabs(show = true) {
-  setTabMode(show ? 'utility' : 'main');
-}
-
-utilityToggleBtn?.addEventListener('click', () => {
-  const isUtilityMode = panel?.classList.contains('utility-tabs-mode');
-  const shouldShowUtility = !isUtilityMode;
-
-  showUtilityTabs(shouldShowUtility);
-
-  if (shouldShowUtility) {
-    activateTab('tab-settings');
-    updateOfflineStatus();
-    updateEmergencyInfo();
-    updateLayerHealth();
-    renderOfflineAreas?.();
-  } else {
-    activateTab('tab-map');
-  }
-});
-
 
 function applyFieldMode() {
   const on = !!settingFieldMode?.checked;
