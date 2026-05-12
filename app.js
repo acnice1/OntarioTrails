@@ -2236,6 +2236,9 @@ async function showShareLocationPopup() {
     </div>
   `;
 
+  // Close the Controls Panel //
+  closePanel?.();
+
   L.popup()
     .setLatLng(latlng)
     .setContent(html)
