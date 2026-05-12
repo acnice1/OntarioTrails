@@ -2151,7 +2151,52 @@ locateBtn?.addEventListener('click', () => {
 
 
   // ---------------------------------------------------------------------------
-  
+  // ---------------------------------------------------------------------------
+// Emergency: Copy GPS / Map Center Google Maps Link
+// ---------------------------------------------------------------------------
+const copyGoogleMapsLinkBtn = document.getElementById('copyGoogleMapsLinkBtn');
+
+function getBestShareLocation() {
+  // Prefer current GPS marker if available
+  if (you && typeof you.getLatLng === 'function') {
+    return {
+      latlng: you.getLatLng(),
+      source: 'gps'
+    };
+  }
+
+  // Fallback to current map center
+  return {
+    latlng: map.getCenter(),
+    source: 'map-center'
+  };
+}
+
+async function copyGoogleMapsLink() {
+  const { latlng, source } = getBestShareLocation();
+
+  if (!latlng || !Number.isFinite(latlng.lat) || !Number.isFinite(latlng.lng)) {
+    alert('No valid location is available yet.');
+    return;
+  }
+
+  const lat = latlng.lat.toFixed(6);
+  const lng = latlng.lng.toFixed(6);
+  const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+
+  const label = source === 'gps'
+    ? 'GPS location'
+    : 'map center';
+
+  try {
+    await navigator.clipboard.writeText(url);
+    alert(`Copied Google Maps link for ${label}:\n\n${url}`);
+  } catch {
+    prompt('Copy this Google Maps link:', url);
+  }
+}
+
+copyGoogleMapsLinkBtn?.addEventListener('click', copyGoogleMapsLink);
   // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
