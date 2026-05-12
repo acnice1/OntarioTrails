@@ -626,3 +626,7 @@ input[type="range"]::-moz-range-thumb{
 .emergency-location-popup div {
   line-height: 1.35;
 }
+/* Ensure emergency popup is in front of control panel*/
+.leaflet-popup-pane {
+  z-index: 1500;
+}
