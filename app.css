@@ -615,3 +615,14 @@ input[type="range"]::-moz-range-thumb{
   flex: 0 0 auto;
   white-space: nowrap;
 }
+.emergency-location-popup {
+  max-width: 280px;
+}
+
+.emergency-location-popup a {
+  font-weight: 600;
+}
+
+.emergency-location-popup div {
+  line-height: 1.35;
+}

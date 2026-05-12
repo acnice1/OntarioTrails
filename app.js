@@ -2152,27 +2152,53 @@ locateBtn?.addEventListener('click', () => {
 
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
-// Emergency: Copy GPS / Map Center Google Maps Link
+// Emergency: Copy Google Maps link and show clickable popup
 // ---------------------------------------------------------------------------
-const copyGoogleMapsLinkBtn = document.getElementById('copyGoogleMapsLinkBtn');
+const copyGoogleMapsLinkBtn  = document.getElementById('copyGoogleMapsLinkBtn');
 
 function getBestShareLocation() {
   // Prefer current GPS marker if available
   if (you && typeof you.getLatLng === 'function') {
     return {
       latlng: you.getLatLng(),
-      source: 'gps'
+      source: 'GPS location'
     };
   }
 
   // Fallback to current map center
   return {
     latlng: map.getCenter(),
-    source: 'map-center'
+    source: 'map center'
   };
 }
 
-async function copyGoogleMapsLink() {
+async function copyTextWithFallback(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Fallback for older browsers / restricted clipboard contexts
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+
+    let copied = false;
+    try {
+      copied = document.execCommand('copy');
+    } catch {
+      copied = false;
+    }
+
+    document.body.removeChild(ta);
+    return copied;
+  }
+}
+
+async function showShareLocationPopup() {
   const { latlng, source } = getBestShareLocation();
 
   if (!latlng || !Number.isFinite(latlng.lat) || !Number.isFinite(latlng.lng)) {
@@ -2182,21 +2208,41 @@ async function copyGoogleMapsLink() {
 
   const lat = latlng.lat.toFixed(6);
   const lng = latlng.lng.toFixed(6);
-  const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 
-  const label = source === 'gps'
-    ? 'GPS location'
-    : 'map center';
+  // Copy immediately when the Emergency button is clicked
+  const copied = await copyTextWithFallback(googleMapsUrl);
 
-  try {
-    await navigator.clipboard.writeText(url);
-    alert(`Copied Google Maps link for ${label}:\n\n${url}`);
-  } catch {
-    prompt('Copy this Google Maps link:', url);
-  }
+  const html = `
+    <div class="popup emergency-location-popup">
+      <h4>Emergency Location</h4>
+
+      <div><strong>Using:</strong> ${source}</div>
+      <div><strong>Coordinates:</strong> ${lat}, ${lng}</div>
+
+      <div style="margin-top: 8px;">
+        <strong>Status:</strong> ${copied ? 'Google Maps link copied.' : 'Could not auto-copy. Use the link below.'}
+      </div>
+
+      <div style="margin-top: 10px;">
+        <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer">
+          Open this location in Google Maps
+        </a>
+      </div>
+
+      <div style="margin-top: 8px; word-break: break-all; font-size: 12px;">
+        ${googleMapsUrl}
+      </div>
+    </div>
+  `;
+
+  L.popup()
+    .setLatLng(latlng)
+    .setContent(html)
+    .openOn(map);
 }
 
-copyGoogleMapsLinkBtn?.addEventListener('click', copyGoogleMapsLink);
+copyGoogleMapsLinkBtn?.addEventListener('click', showShareLocationPopup);
   // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
