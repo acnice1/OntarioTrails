@@ -11,6 +11,7 @@ const DATA_CACHE   = `ontario-trails-data-${VERSION}`;
 const TILE_CACHE   = `ontario-trails-tiles-${VERSION}`;
 
 const USER_OFFLINE_IMAGERY_CACHE = 'ontario-trails-offline-imagery-v1';
+const USER_OFFLINE_BASEMAP_CACHE = 'ontario-trails-offline-basemap-v1';
 const USER_OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 
 // Limit sizes to avoid unbounded growth.
@@ -51,7 +52,7 @@ const CORE_DATA = [
   './Fishing_Access_Point.geojson'
 ];
 
-// ===== Utilities =============================================================
+// ====HELPERS = Utilities =============================================================
 
 async function trimCache(cacheName, maxEntries) {
   if (!maxEntries) return;
@@ -76,6 +77,16 @@ function isDataURL(url) {
   return (
     isSameOrigin(url) &&
     /\.(?:geojson|json)(\?|#|$)/i.test(url.pathname)
+  );
+}
+
+function isOfflineBasemapURL(url) {
+  return (
+    /\.(?:png|jpg|jpeg|webp)(\?|#|$)/i.test(url.pathname) &&
+    (
+      url.pathname.includes('/offline-basemap/') ||
+      /offline-basemap/i.test(url.hostname)
+    )
   );
 }
 
@@ -180,7 +191,7 @@ async function staleWhileRevalidate(req, cacheName, limitName = cacheName) {
 
       if (netRes && (netRes.ok || netRes.type === 'opaque')) {
         await cache.put(req, netRes.clone());
-        await trimCache(cacheName, LIMITS[limitName]);
+        if (LIMITS[limitName]) await trimCache(cacheName, LIMITS[limitName]);
       }
 
       return netRes;
@@ -220,7 +231,7 @@ async function addAllLenient(cacheName, urls) {
     })
   );
 
-  await trimCache(cacheName, LIMITS[cacheName]);
+  if (LIMITS[cacheName]) await trimCache(cacheName, LIMITS[cacheName]);
 }
 
 // ===== Install ===============================================================
@@ -254,6 +265,7 @@ const keep = new Set([
 
   // User-managed offline downloads — do not delete on app update.
   USER_OFFLINE_IMAGERY_CACHE,
+  USER_OFFLINE_BASEMAP_CACHE,
   USER_OFFLINE_DATA_CACHE
 ]);
 
@@ -362,11 +374,11 @@ async function preloadUrls(event) {
 
     // Keep cache bounded during longer preloads.
     if (completed % 25 === 0) {
-      await trimCache(cacheName, LIMITS[cacheName]);
+      if (LIMITS[cacheName]) await trimCache(cacheName, LIMITS[cacheName]);
     }
   }
 
-  await trimCache(cacheName, LIMITS[cacheName]);
+  if (LIMITS[cacheName]) await trimCache(cacheName, LIMITS[cacheName]);
 
   try {
     event.source?.postMessage({
@@ -432,6 +444,19 @@ self.addEventListener('fetch', event => {
     event.respondWith(cacheFirst(req, STATIC_CACHE));
     return;
   }
+
+  // 3b) User-managed offline basemap tiles from R2/custom domain.
+// Use the durable basemap cache, not the small generic TILE_CACHE.
+function isOfflineBasemapURL(url) {
+  return (
+    /\.(?:png|jpg|jpeg|webp)(\?|#|$)/i.test(url.pathname) &&
+    (
+      url.hostname === 'pub-19f9e9e1492a49faaa32e257355e1973.r2.dev' ||
+      url.pathname.includes('/offline-basemap/') ||
+      /offline-basemap/i.test(url.hostname)
+    )
+  );
+}
 
   // 4) Tiles and CDN assets: stale-while-revalidate.
   // Also catches tile-looking URL patterns.

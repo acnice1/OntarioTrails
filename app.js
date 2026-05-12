@@ -12,9 +12,10 @@
   // ---------------------------------------------------------------------------
   // Map & Panes & Basemap
   // ---------------------------------------------------------------------------
- const map = L.map('map', {
+const map = L.map('map', {
   zoomControl: false,
-  attributionControl: false
+  attributionControl: false,
+  maxZoom: 22
 }).setView([45.4215, -75.6972], 11);
  L.control.zoom({ position: 'topright' }).addTo(map);
  
@@ -32,11 +33,55 @@
   map.getPane('imageryPane').style.zIndex = 300; // above base
 
 // OSM basemap
+// ---------------------------------------------------------------------------
+// Basemaps
+// ---------------------------------------------------------------------------
+
+const ONTARIO_TILE_BOUNDS = L.latLngBounds(
+  [41.6377, -95.15965],
+  [57.50826, -74.30998]
+);
+
+// Live OSM basemap
 const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 22,
+  maxNativeZoom: 19,
   attribution: '&copy; OpenStreetMap',
   pane: 'basePane'
-}).addTo(map);
+});
+
+// Offline R2 basemap
+// Replace with your actual public R2/custom-domain URL.
+const OFFLINE_BASEMAP_TILE_TEMPLATE = 'https://pub-19f9e9e1492a49faaa32e257355e1973.r2.dev/{z}/{x}/{y}.png';
+
+const offlineBase = L.tileLayer(OFFLINE_BASEMAP_TILE_TEMPLATE, {
+  minZoom: 0,
+  maxZoom: 22,
+  maxNativeZoom: 13,
+  bounds: ONTARIO_TILE_BOUNDS,
+  noWrap: true,
+  attribution: '© MapTiler © OpenStreetMap contributors',
+  pane: 'basePane'
+});
+
+const BASEMAP_SETTING_KEY = 'ontarioTrails.baseMapMode.v1';
+
+function setBaseMapMode(mode = 'online') {
+  if (map.hasLayer(base)) map.removeLayer(base);
+  if (map.hasLayer(offlineBase)) map.removeLayer(offlineBase);
+
+  if (mode === 'online') {
+    base.addTo(map);
+  } else if (mode === 'offline') {
+    offlineBase.addTo(map);
+  }
+
+  if (baseMapModeSelect) baseMapModeSelect.value = mode;
+
+  try {
+    localStorage.setItem(BASEMAP_SETTING_KEY, mode);
+  } catch {}
+}
 
   // CLUPA pane (above imagery/contours)
   map.createPane('clupaPane');
@@ -539,7 +584,7 @@ merged.sort((a, b) => {
 
   const crosshairEl   = document.getElementById('crosshair');
   const contourHintEl = document.getElementById('contourHint');
-
+  const baseMapModeSelect = document.getElementById('baseMapMode');
   // Panel: stop map/page interaction when touching inside the panel
   if (panel) {
     L.DomEvent.disableClickPropagation(panel);
@@ -693,9 +738,24 @@ utilityToggleBtn?.addEventListener('click', () => {
   activateTab(initialTab);
 })();
 
-  showBaseCk?.addEventListener('change', () => {
+  /*showBaseCk?.addEventListener('change', () => {
     showBaseCk.checked ? base.addTo(map) : map.removeLayer(base);
-  });
+  }); */
+  baseMapModeSelect?.addEventListener('change', () => {
+  setBaseMapMode(baseMapModeSelect.value || 'online');
+});
+
+(function initBaseMapMode() {
+  let saved = 'online';
+
+  try {
+    saved = localStorage.getItem(BASEMAP_SETTING_KEY) || 'online';
+  } catch {}
+
+  if (!['online', 'offline', 'none'].includes(saved)) saved = 'online';
+
+  setBaseMapMode(saved);
+})();
 
   function updateCrosshair() {
     if (!crosshairEl || !showCrosshair) return;
@@ -918,8 +978,10 @@ showTrailsOSM?.addEventListener('change', async () => {
 // const CACHE_VERSION = window.APP_VERSION || 'dev';
 
 const OFFLINE_IMAGERY_CACHE = 'ontario-trails-offline-imagery-v1';
+const OFFLINE_BASEMAP_CACHE = 'ontario-trails-offline-basemap-v1';
 const OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 const OFFLINE_AREAS_KEY     = 'ontarioTrails.offlineAreas.v1';
+
 
 const offlineAreaNameInput  = document.getElementById('offlineAreaName');
 const offlineMinZoomInput   = document.getElementById('offlineMinZoom');
@@ -929,6 +991,8 @@ const offlineDownloadBtn    = document.getElementById('offlineDownloadBtn');
 const offlineClearBtn       = document.getElementById('offlineClearBtn');
 const offlineStatus         = document.getElementById('offlineStatus');
 const showOfflineAreasCk    = document.getElementById('showOfflineAreas');
+const downloadOfflineBasemapCk  = document.getElementById('downloadOfflineBasemap');
+const downloadSatelliteImageryCk = document.getElementById('downloadSatelliteImagery');
 
 const OFFLINE_MAX_TILE_DOWNLOAD = 900;
 
@@ -1074,12 +1138,30 @@ function clampInt(value, min, max, fallback) {
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
 }
-
+/*
 function getOfflineZoomRange() {
   const currentZ = map.getZoom();
 
   let minZ = clampInt(offlineMinZoomInput?.value, 5, 22, currentZ);
   let maxZ = clampInt(offlineMaxZoomInput?.value, 5, 22, currentZ);
+
+  if (minZ > maxZ) {
+    const tmp = minZ;
+    minZ = maxZ;
+    maxZ = tmp;
+  }
+
+  if (offlineMinZoomInput) offlineMinZoomInput.value = String(minZ);
+  if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(maxZ);
+
+  return { minZ, maxZ };
+}
+*/
+function getOfflineZoomRange() {
+  const currentZ = Math.round(map.getZoom());
+
+  let minZ = clampInt(offlineMinZoomInput?.value, 0, 22, Math.min(22, currentZ));
+  let maxZ = clampInt(offlineMaxZoomInput?.value, 0, 22, Math.min(22, currentZ + 1));
 
   if (minZ > maxZ) {
     const tmp = minZ;
@@ -1129,6 +1211,22 @@ function buildImageryTileUrlList(bounds, minZ, maxZ) {
 
   return urls;
 }
+function buildOfflineBasemapTileUrlList(bounds, minZ, maxZ) {
+  const urls = [];
+
+  for (let z = minZ; z <= maxZ; z++) {
+    const r = getTileRangeForBounds(bounds, z);
+
+    for (let x = r.minX; x <= r.maxX; x++) {
+      for (let y = r.minY; y <= r.maxY; y++) {
+        urls.push(tileUrlFromTemplate(OFFLINE_BASEMAP_TILE_TEMPLATE, z, x, y));
+      }
+    }
+  }
+
+  return urls;
+}
+
 
 async function cacheOTNData() {
   if (!('caches' in window)) return false;
@@ -1167,14 +1265,28 @@ async function cacheTileUrl(url, cache) {
   return 'downloaded';
 }
 
+
 async function estimateOfflineArea() {
   if (!('caches' in window)) {
     setOfflineStatus('Offline cache is not available in this browser.');
     return;
   }
 
-  const { minZ, maxZ } = getOfflineZoomRange();
-  const urls = buildImageryTileUrlList(map.getBounds(), minZ, maxZ);
+const { minZ, maxZ } = getOfflineZoomRange();
+const bounds = map.getBounds();
+
+const basemapMaxZ = Math.min(maxZ, 13);
+const basemapMinZ = Math.min(minZ, basemapMaxZ);
+
+const basemapUrls = downloadOfflineBasemapCk?.checked
+  ? buildOfflineBasemapTileUrlList(bounds, basemapMinZ, basemapMaxZ)
+  : [];
+
+const imageryUrls = downloadSatelliteImageryCk?.checked
+  ? buildImageryTileUrlList(bounds, minZ, maxZ)
+  : [];
+
+  const total = basemapUrls.length + imageryUrls.length;
 
   let storageMsg = '';
   if (navigator.storage?.estimate) {
@@ -1187,7 +1299,8 @@ async function estimateOfflineArea() {
   }
 
   setOfflineStatus(
-    `Current visible area would download about ${urls.length} imagery tile(s), zoom ${minZ}–${maxZ}.` +
+    `Current visible area would download about ${total} tile(s), zoom ${minZ}–${maxZ}. ` +
+    `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}.` +
     storageMsg
   );
 }
@@ -1198,13 +1311,41 @@ async function downloadOfflineArea() {
     return;
   }
 
-  const { minZ, maxZ } = getOfflineZoomRange();
-  const bounds = map.getBounds();
-  const urls = buildImageryTileUrlList(bounds, minZ, maxZ);
+const { minZ, maxZ } = getOfflineZoomRange();
+const bounds = map.getBounds();
 
-  if (urls.length > OFFLINE_MAX_TILE_DOWNLOAD) {
+const basemapMaxZ = Math.min(maxZ, 13);
+const basemapMinZ = Math.min(minZ, basemapMaxZ);
+
+const basemapUrls = downloadOfflineBasemapCk?.checked
+  ? buildOfflineBasemapTileUrlList(bounds, basemapMinZ, basemapMaxZ)
+  : [];
+
+const imageryUrls = downloadSatelliteImageryCk?.checked
+  ? buildImageryTileUrlList(bounds, minZ, maxZ)
+  : [];
+
+  const jobs = [
+    ...basemapUrls.map(url => ({
+      url,
+      cacheName: OFFLINE_BASEMAP_CACHE,
+      kind: 'basemap'
+    })),
+    ...imageryUrls.map(url => ({
+      url,
+      cacheName: OFFLINE_IMAGERY_CACHE,
+      kind: 'imagery'
+    }))
+  ];
+
+  if (!jobs.length) {
+    setOfflineStatus('Nothing selected to download. Choose offline basemap and/or satellite imagery.');
+    return;
+  }
+
+  if (jobs.length > OFFLINE_MAX_TILE_DOWNLOAD) {
     setOfflineStatus(
-      `This area is too large: ${urls.length} tiles. Reduce the visible area or lower the max zoom. Limit is ${OFFLINE_MAX_TILE_DOWNLOAD} tiles.`
+      `This area is too large: ${jobs.length} tiles. Reduce the visible area or lower the max zoom. Limit is ${OFFLINE_MAX_TILE_DOWNLOAD} tiles.`
     );
     return;
   }
@@ -1217,44 +1358,56 @@ async function downloadOfflineArea() {
       try { await navigator.storage.persist(); } catch {}
     }
 
-    setOfflineStatus(`Caching OTN trails and ${urls.length} imagery tile(s)…`);
+    setOfflineStatus(
+      `Caching OTN trails and ${jobs.length} tile(s)… ` +
+      `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}.`
+    );
 
     const otnCached = await cacheOTNData();
 
-    const cache = await caches.open(OFFLINE_IMAGERY_CACHE);
+    const cacheMap = new Map();
     let downloaded = 0;
     let alreadyCached = 0;
     let failed = 0;
 
-    for (let i = 0; i < urls.length; i++) {
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+
       try {
-        const result = await cacheTileUrl(urls[i], cache);
+        let cache = cacheMap.get(job.cacheName);
+
+        if (!cache) {
+          cache = await caches.open(job.cacheName);
+          cacheMap.set(job.cacheName, cache);
+        }
+
+        const result = await cacheTileUrl(job.url, cache);
         if (result === 'cached') alreadyCached++;
         else downloaded++;
       } catch (err) {
         failed++;
-        console.warn('Tile cache failed:', urls[i], err);
+        console.warn('Tile cache failed:', job.url, err);
       }
 
-      if (i % 10 === 0 || i === urls.length - 1) {
+      if (i % 10 === 0 || i === jobs.length - 1) {
         setOfflineStatus(
-          `Offline download: ${i + 1}/${urls.length} tiles processed. ` +
+          `Offline download: ${i + 1}/${jobs.length} tiles processed. ` +
           `${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
           `OTN: ${otnCached ? 'cached' : 'not cached'}.`
         );
 
-        // Yield briefly so the UI can update during long downloads.
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
 
-    if (failed < urls.length) {
-  addOfflineAreaRecord(bounds, minZ, maxZ, urls.length);
-  if (offlineAreaNameInput) offlineAreaNameInput.value = '';
-}
+    if (failed < jobs.length) {
+      addOfflineAreaRecord(bounds, minZ, maxZ, jobs.length);
+      if (offlineAreaNameInput) offlineAreaNameInput.value = '';
+    }
 
     setOfflineStatus(
-      `Offline area ready. Imagery: ${downloaded} new tile(s), ${alreadyCached} already cached, ${failed} failed. ` +
+      `Offline area ready. Tiles: ${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
+      `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}. ` +
       `OTN trails: ${otnCached ? 'cached' : 'not cached'}.`
     );
   } finally {
@@ -1263,15 +1416,17 @@ async function downloadOfflineArea() {
   }
 }
 
+
 async function clearOfflineImagery() {
   if ('caches' in window) {
     await caches.delete(OFFLINE_IMAGERY_CACHE);
+    await caches.delete(OFFLINE_BASEMAP_CACHE);
   }
 
   localStorage.removeItem(OFFLINE_AREAS_KEY);
   renderOfflineAreas();
 
-  setOfflineStatus('Offline satellite imagery cache and downloaded area boxes cleared. OTN/data cache was left in place.');
+  setOfflineStatus('Offline basemap/imagery caches and downloaded area boxes cleared. OTN/data cache was left in place.');
 }
 
 offlineEstimateBtn?.addEventListener('click', estimateOfflineArea);
@@ -1279,10 +1434,17 @@ offlineDownloadBtn?.addEventListener('click', downloadOfflineArea);
 offlineClearBtn?.addEventListener('click', clearOfflineImagery);
 
 // Sensible defaults based on the current map zoom.
-(function initOfflineZoomDefaults() {
+/*(function initOfflineZoomDefaults() {
   const z = map.getZoom();
   if (offlineMinZoomInput) offlineMinZoomInput.value = String(Math.max(5, z));
   if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(Math.min(22, z + 1));
+  renderOfflineAreas();
+})();
+*/
+(function initOfflineZoomDefaults() {
+  const z = Math.round(map.getZoom());
+  if (offlineMinZoomInput) offlineMinZoomInput.value = String(Math.max(0, Math.min(13, z)));
+  if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(Math.min(13, z + 1));
   renderOfflineAreas();
 })();
 
@@ -2998,7 +3160,7 @@ refreshMeasurement();
     updateContourVisibility();
   });
 
-  restoreCheckbox(showBaseCk, (on) => { on ? base.addTo(map) : map.removeLayer(base); });
+  //restoreCheckbox(showBaseCk, (on) => { on ? base.addTo(map) : map.removeLayer(base); });
 
   restoreCheckbox(showServerRoutesCk, (on) => {
   on ? serverRoutesLayer.addTo(map) : map.removeLayer(serverRoutesLayer);

@@ -124,9 +124,16 @@
         <h3>Filters</h3>
 
         <div class="filters" id="filters">
-          <label><input type="checkbox" id="showBase" checked> Base map</label>
-          <label><input type="checkbox" id="showImagery"> Satellite Imagery (WMTS)</label>
+ <label style="display:flex;align-items:center;gap:.5rem;">
+  Basemap
+  <select id="baseMapMode" style="flex:1;">
+    <option value="online" selected>Online OSM</option>
+    <option value="offline">Offline map</option>
+    <option value="none">None</option>
+  </select>
+</label>
 
+<label><input type="checkbox" id="showImagery"> Satellite Imagery (WMTS)</label>
           <!-- Imagery blend slider -->
           <div id="imageryBlendRow" style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0 0 1.5rem;">
             <label for="imageryOpacity" style="font-size:0.9rem;opacity:.85;min-width:3.5rem;">Blend</label>
@@ -156,14 +163,26 @@
         <div class="row">
           <label style="display:flex;align-items:center;gap:.4rem;">
             Min zoom
-            <input id="offlineMinZoom" type="number" min="5" max="22" value="11" style="width:4.5rem;">
+            <input id="offlineMinZoom" type="number" min="0" max="22" value="11" style="width:4.5rem;">
           </label>
 
           <label style="display:flex;align-items:center;gap:.4rem;">
             Max zoom
-            <input id="offlineMaxZoom" type="number" min="5" max="22" value="14" style="width:4.5rem;">
+            <input id="offlineMaxZoom" type="number" min="0" max="22" value="13" style="width:4.5rem;">
           </label>
         </div>
+
+        <div class="row" style="display:grid;gap:6px;">
+  <label>
+    <input type="checkbox" id="downloadOfflineBasemap" checked>
+    Download offline basemap tiles
+  </label>
+
+  <label>
+    <input type="checkbox" id="downloadSatelliteImagery">
+    Download satellite imagery tiles
+  </label>
+</div>
 
         <div class="row">
           <button class="btn" id="offlineEstimateBtn">Estimate area</button>
@@ -171,12 +190,12 @@
         </div>
 
         <div class="row">
-          <button class="btn" id="offlineClearBtn">Clear offline imagery</button>
+          <button class="btn" id="offlineClearBtn">Clear offline map cache</button>
         </div>
 
-        <div id="offlineStatus" class="muted" style="display:block;margin-top:6px;line-height:1.35;">
-          Downloads satellite imagery for the current visible map area and caches OTN trails.
-        </div>
+<div id="offlineStatus" class="muted" style="display:block;margin-top:6px;line-height:1.35;">
+  Downloads offline basemap tiles for the current visible map area and caches OTN trails. Satellite imagery is optional.
+</div>
       </section>
 
       <section class="panel-section">
