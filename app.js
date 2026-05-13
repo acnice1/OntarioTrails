@@ -17,8 +17,31 @@ const map = L.map('map', {
   attributionControl: false,
   maxZoom: 22
 }).setView([45.4215, -75.6972], 11);
- L.control.zoom({ position: 'topright' }).addTo(map);
- 
+ const zoomControl = L.control.zoom({ position: 'topright' }).addTo(map);
+
+function updateZoomControlTitles() {
+  const z = map.getZoom();
+  const maxZ = map.getMaxZoom();
+  const minZ = map.getMinZoom();
+
+  const zoomInBtn = document.querySelector('.leaflet-control-zoom-in');
+  const zoomOutBtn = document.querySelector('.leaflet-control-zoom-out');
+
+  if (zoomInBtn) {
+    const nextZ = Math.min(z + 1, maxZ);
+    zoomInBtn.title = `Zoom in to z${nextZ}`;
+    zoomInBtn.setAttribute('aria-label', `Zoom in to z${nextZ}`);
+  }
+
+  if (zoomOutBtn) {
+    const nextZ = Math.max(z - 1, minZ);
+    zoomOutBtn.title = `Zoom out to z${nextZ}`;
+    zoomOutBtn.setAttribute('aria-label', `Zoom out to z${nextZ}`);
+  }
+}
+
+updateZoomControlTitles();
+map.on('zoomend', updateZoomControlTitles);
  // override default Leaflet attribution prefix with our own (kept concise to allow room for OSM + LIO credits)
  L.control.attribution({ position: 'bottomleft' }).addTo(map);
 
@@ -93,14 +116,14 @@ const ONTARIO_IMAGERY_TILE_TEMPLATE =
 
 const imagery = L.tileLayer(
   ONTARIO_IMAGERY_TILE_TEMPLATE,
-    {
-      maxZoom: 22,           // auto-capped later by capabilities fetch
-      attribution: 'Imagery © Ontario LIO',
-      pane: 'imageryPane',
-      opacity: 1
-    }
-  );
-
+  {
+    maxZoom: 22,
+    maxNativeZoom: 19,
+    attribution: 'Imagery © Ontario LIO',
+    pane: 'imageryPane',
+    opacity: 1
+  }
+);
 
   // ---------------------------------------------------------------------------
   // Mobile viewport fallback (JS var for older browsers' 100vh quirk)
@@ -982,9 +1005,12 @@ const OFFLINE_BASEMAP_CACHE = 'ontario-trails-offline-basemap-v1';
 const OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 const OFFLINE_AREAS_KEY     = 'ontarioTrails.offlineAreas.v1';
 
+const OFFLINE_DEFAULT_MIN_ZOOM = 8;
+const OFFLINE_BASEMAP_MAX_NATIVE_ZOOM = 13;
+const OFFLINE_MAX_DOWNLOAD_ZOOM = 19;
 
 const offlineAreaNameInput  = document.getElementById('offlineAreaName');
-const offlineMinZoomInput   = document.getElementById('offlineMinZoom');
+//const offlineMinZoomInput   = document.getElementById('offlineMinZoom');
 const offlineMaxZoomInput   = document.getElementById('offlineMaxZoom');
 const offlineEstimateBtn    = document.getElementById('offlineEstimateBtn');
 const offlineDownloadBtn    = document.getElementById('offlineDownloadBtn');
@@ -1138,38 +1164,22 @@ function clampInt(value, min, max, fallback) {
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
 }
-/*
-function getOfflineZoomRange() {
-  const currentZ = map.getZoom();
 
-  let minZ = clampInt(offlineMinZoomInput?.value, 5, 22, currentZ);
-  let maxZ = clampInt(offlineMaxZoomInput?.value, 5, 22, currentZ);
-
-  if (minZ > maxZ) {
-    const tmp = minZ;
-    minZ = maxZ;
-    maxZ = tmp;
-  }
-
-  if (offlineMinZoomInput) offlineMinZoomInput.value = String(minZ);
-  if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(maxZ);
-
-  return { minZ, maxZ };
-}
-*/
 function getOfflineZoomRange() {
   const currentZ = Math.round(map.getZoom());
 
-  let minZ = clampInt(offlineMinZoomInput?.value, 0, 22, Math.min(22, currentZ));
-  let maxZ = clampInt(offlineMaxZoomInput?.value, 0, 22, Math.min(22, currentZ + 1));
+  const minZ = OFFLINE_DEFAULT_MIN_ZOOM;
 
-  if (minZ > maxZ) {
-    const tmp = minZ;
-    minZ = maxZ;
-    maxZ = tmp;
-  }
+  const maxZ = clampInt(
+    offlineMaxZoomInput?.value,
+    OFFLINE_DEFAULT_MIN_ZOOM,
+    OFFLINE_MAX_DOWNLOAD_ZOOM,
+    Math.max(
+      OFFLINE_DEFAULT_MIN_ZOOM,
+      Math.min(OFFLINE_MAX_DOWNLOAD_ZOOM, currentZ + 1)
+    )
+  );
 
-  if (offlineMinZoomInput) offlineMinZoomInput.value = String(minZ);
   if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(maxZ);
 
   return { minZ, maxZ };
@@ -1434,17 +1444,15 @@ offlineDownloadBtn?.addEventListener('click', downloadOfflineArea);
 offlineClearBtn?.addEventListener('click', clearOfflineImagery);
 
 // Sensible defaults based on the current map zoom.
-/*(function initOfflineZoomDefaults() {
-  const z = map.getZoom();
-  if (offlineMinZoomInput) offlineMinZoomInput.value = String(Math.max(5, z));
-  if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(Math.min(22, z + 1));
-  renderOfflineAreas();
-})();
-*/
 (function initOfflineZoomDefaults() {
   const z = Math.round(map.getZoom());
-  if (offlineMinZoomInput) offlineMinZoomInput.value = String(Math.max(0, Math.min(13, z)));
-  if (offlineMaxZoomInput) offlineMaxZoomInput.value = String(Math.min(13, z + 1));
+
+  if (offlineMaxZoomInput) {
+    offlineMaxZoomInput.value = String(
+      Math.max(13, Math.min(OFFLINE_MAX_DOWNLOAD_ZOOM, z + 1))
+    );
+  }
+
   renderOfflineAreas();
 })();
 
