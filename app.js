@@ -46,7 +46,32 @@ map.on('zoomend', updateZoomControlTitles);
  L.control.attribution({ position: 'bottomleft' }).addTo(map);
 
   // April 4, added scale control for better distance context (especially with contours)
-  L.control.scale({ position: 'bottomright', metric: true, imperial: false }).addTo(map);
+
+  const scaleControl = L.control.scale({
+  position: 'bottomright',
+  metric: true,
+  imperial: false
+}).addTo(map);
+
+function updateScaleZoomLabel() {
+  const scaleEl = document.querySelector('.leaflet-control-scale');
+  if (!scaleEl) return;
+
+  let zoomEl = scaleEl.querySelector('.scale-zoom-label');
+
+  if (!zoomEl) {
+    zoomEl = document.createElement('span');
+    zoomEl.className = 'scale-zoom-label';
+    scaleEl.appendChild(zoomEl);
+  }
+
+  zoomEl.textContent = `z${Math.round(map.getZoom())}`;
+}
+
+
+updateScaleZoomLabel();
+map.on('zoomend', updateScaleZoomLabel);
+
 
   // Pane order: base < imagery < CLUPA
   map.createPane('basePane');
@@ -1005,17 +1030,27 @@ const OFFLINE_BASEMAP_CACHE = 'ontario-trails-offline-basemap-v1';
 const OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 const OFFLINE_AREAS_KEY     = 'ontarioTrails.offlineAreas.v1';
 
-const OFFLINE_DEFAULT_MIN_ZOOM = 8;
+const OFFLINE_DEFAULT_MIN_ZOOM = 5;
 const OFFLINE_BASEMAP_MAX_NATIVE_ZOOM = 13;
 const OFFLINE_MAX_DOWNLOAD_ZOOM = 19;
 
 const offlineAreaNameInput  = document.getElementById('offlineAreaName');
 //const offlineMinZoomInput   = document.getElementById('offlineMinZoom');
+const useOfflineBoxCk       = document.getElementById('useOfflineBox');
 const offlineMaxZoomInput   = document.getElementById('offlineMaxZoom');
 const offlineEstimateBtn    = document.getElementById('offlineEstimateBtn');
+
+const offlineBoxWidthInput  = document.getElementById('offlineBoxWidth');
+const offlineBoxHeightInput = document.getElementById('offlineBoxHeight');
+const offlineBoxWidthMinus  = document.getElementById('offlineBoxWidthMinus');
+const offlineBoxWidthPlus   = document.getElementById('offlineBoxWidthPlus');
+const offlineBoxHeightMinus = document.getElementById('offlineBoxHeightMinus');
+const offlineBoxHeightPlus  = document.getElementById('offlineBoxHeightPlus');
+
 const offlineDownloadBtn    = document.getElementById('offlineDownloadBtn');
 const offlineClearBtn       = document.getElementById('offlineClearBtn');
 const offlineStatus         = document.getElementById('offlineStatus');
+
 const showOfflineAreasCk    = document.getElementById('showOfflineAreas');
 const downloadOfflineBasemapCk  = document.getElementById('downloadOfflineBasemap');
 const downloadSatelliteImageryCk = document.getElementById('downloadSatelliteImagery');
@@ -1034,6 +1069,35 @@ function getStoredOfflineTileCount() {
     const n = Number(area.tileCount);
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
+}
+
+function getOfflineBoxValue(input, fallback) {
+  const n = Number.parseFloat(input?.value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0.20, Math.min(1.00, n));
+}
+
+function getOfflineDownloadBounds() {
+  if (!useOfflineBoxCk?.checked) {
+    return map.getBounds();
+  }
+
+  const boxWidth = getOfflineBoxValue(offlineBoxWidthInput, 0.82);
+  const boxHeight = getOfflineBoxValue(offlineBoxHeightInput, 0.40);
+
+  const size = map.getSize();
+  const center = map.latLngToContainerPoint(map.getCenter());
+
+  const halfW = size.x * boxWidth / 2;
+  const halfH = size.y * boxHeight / 2;
+
+  const nwPoint = L.point(center.x - halfW, center.y - halfH);
+  const sePoint = L.point(center.x + halfW, center.y + halfH);
+
+  return L.latLngBounds(
+    map.containerPointToLatLng(nwPoint),
+    map.containerPointToLatLng(sePoint)
+  );
 }
 
 function loadOfflineAreas() {
@@ -1238,29 +1302,76 @@ function buildOfflineBasemapTileUrlList(bounds, minZ, maxZ) {
 }
 
 
-async function cacheOTNData() {
-  if (!('caches' in window)) return false;
+async function cacheOfflineVectorData() {
+  if (!('caches' in window)) return {
+    ok: false,
+    cached: 0,
+    failed: ['Cache API unavailable']
+  };
 
-  const candidates = [
-    './data/OTN.geojson',
-    '/data/OTN.geojson'
+  const datasets = [
+    {
+      name: 'OTN trails',
+      candidates: [
+        './data/OTN.geojson',
+        '/data/OTN.geojson'
+      ]
+    },
+    {
+      name: 'OSM trails',
+      candidates: [
+        './data/OSM_paths.geojson',
+        '/data/OSM_paths.geojson'
+      ]
+    },
+    {
+      name: 'Stocked lakes',
+      candidates: [
+        './data/Fish_Stocking_Data.geojson',
+        '/data/Fish_Stocking_Data.geojson'
+      ]
+    },
+    {
+      name: 'Water access points',
+      candidates: [
+        './data/Fishing_Access_Point.geojson',
+        '/data/Fishing_Access_Point.geojson'
+      ]
+    }
   ];
 
   const cache = await caches.open(OFFLINE_DATA_CACHE);
 
-  for (const url of candidates) {
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) continue;
+  let cached = 0;
+  const failed = [];
 
-      await cache.put(url, res.clone());
-      return true;
-    } catch (err) {
-      console.warn('OTN cache attempt failed:', url, err);
+  for (const dataset of datasets) {
+    let datasetCached = false;
+
+    for (const url of dataset.candidates) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) continue;
+
+        await cache.put(url, res.clone());
+        cached++;
+        datasetCached = true;
+        break;
+      } catch (err) {
+        console.warn(`${dataset.name} cache attempt failed:`, url, err);
+      }
+    }
+
+    if (!datasetCached) {
+      failed.push(dataset.name);
     }
   }
 
-  return false;
+  return {
+    ok: failed.length === 0,
+    cached,
+    failed
+  };
 }
 
 async function cacheTileUrl(url, cache) {
@@ -1275,6 +1386,51 @@ async function cacheTileUrl(url, cache) {
   return 'downloaded';
 }
 
+const offlinePreviewBoxLayer = L.layerGroup().addTo(map);
+
+function renderOfflineDownloadPreviewBox() {
+  offlinePreviewBoxLayer.clearLayers();
+
+  if (!useOfflineBoxCk?.checked) return;
+
+  const bounds = getOfflineDownloadBounds();
+
+  L.rectangle(bounds, {
+    color: '#ff7a00',
+    weight: 2,
+    dashArray: '6 6',
+    fillColor: '#ff7a00',
+    fillOpacity: 0.08,
+    interactive: false
+  }).addTo(offlinePreviewBoxLayer);
+}
+
+function syncOfflineBoxControls() {
+  const on = !!useOfflineBoxCk?.checked;
+
+  [
+    offlineBoxWidthInput,
+    offlineBoxHeightInput,
+    offlineBoxWidthMinus,
+    offlineBoxWidthPlus,
+    offlineBoxHeightMinus,
+    offlineBoxHeightPlus
+  ].forEach(el => {
+    if (el) el.disabled = !on;
+  });
+
+  renderOfflineDownloadPreviewBox();
+}
+
+function adjustOfflineBoxInput(input, delta) {
+  if (!input) return;
+
+  const current = getOfflineBoxValue(input, Number.parseFloat(input.value) || 0.50);
+  const next = Math.max(0.20, Math.min(1.00, +(current + delta).toFixed(2)));
+
+  input.value = next.toFixed(2);
+  renderOfflineDownloadPreviewBox();
+}
 
 async function estimateOfflineArea() {
   if (!('caches' in window)) {
@@ -1283,9 +1439,9 @@ async function estimateOfflineArea() {
   }
 
 const { minZ, maxZ } = getOfflineZoomRange();
-const bounds = map.getBounds();
+const bounds = getOfflineDownloadBounds();
 
-const basemapMaxZ = Math.min(maxZ, 13);
+const basemapMaxZ = Math.min(maxZ, OFFLINE_BASEMAP_MAX_NATIVE_ZOOM);
 const basemapMinZ = Math.min(minZ, basemapMaxZ);
 
 const basemapUrls = downloadOfflineBasemapCk?.checked
@@ -1308,11 +1464,13 @@ const imageryUrls = downloadSatelliteImageryCk?.checked
     } catch {}
   }
 
-  setOfflineStatus(
-    `Current visible area would download about ${total} tile(s), zoom ${minZ}–${maxZ}. ` +
-    `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}.` +
-    storageMsg
-  );
+const areaLabel = useOfflineBoxCk?.checked ? 'Selected download box' : 'Current visible area';
+
+setOfflineStatus(
+  `${areaLabel} would download about ${total} tile(s), zoom ${minZ}–${maxZ}. ` +
+  `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}.` +
+  storageMsg
+);
 }
 
 async function downloadOfflineArea() {
@@ -1322,9 +1480,9 @@ async function downloadOfflineArea() {
   }
 
 const { minZ, maxZ } = getOfflineZoomRange();
-const bounds = map.getBounds();
+const bounds = getOfflineDownloadBounds();
 
-const basemapMaxZ = Math.min(maxZ, 13);
+const basemapMaxZ = Math.min(maxZ, OFFLINE_BASEMAP_MAX_NATIVE_ZOOM);
 const basemapMinZ = Math.min(minZ, basemapMaxZ);
 
 const basemapUrls = downloadOfflineBasemapCk?.checked
@@ -1348,8 +1506,10 @@ const imageryUrls = downloadSatelliteImageryCk?.checked
     }))
   ];
 
+     const vectorDataResult = await cacheOfflineVectorData();
+    
   if (!jobs.length) {
-    setOfflineStatus('Nothing selected to download. Choose offline basemap and/or satellite imagery.');
+    setOfflineStatus('No map tiles selected.');
     return;
   }
 
@@ -1368,12 +1528,12 @@ const imageryUrls = downloadSatelliteImageryCk?.checked
       try { await navigator.storage.persist(); } catch {}
     }
 
-    setOfflineStatus(
-      `Caching OTN trails and ${jobs.length} tile(s)… ` +
-      `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}.`
-    );
+setOfflineStatus(
+  `Caching offline data and ${jobs.length} tile(s)… ` +
+  `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}.`
+);
 
-    const otnCached = await cacheOTNData();
+ 
 
     const cacheMap = new Map();
     let downloaded = 0;
@@ -1400,11 +1560,11 @@ const imageryUrls = downloadSatelliteImageryCk?.checked
       }
 
       if (i % 10 === 0 || i === jobs.length - 1) {
-        setOfflineStatus(
-          `Offline download: ${i + 1}/${jobs.length} tiles processed. ` +
-          `${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
-          `OTN: ${otnCached ? 'cached' : 'not cached'}.`
-        );
+setOfflineStatus(
+  `Offline download: ${i + 1}/${jobs.length} tiles processed. ` +
+  `${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
+  `Data: ${vectorDataResult.cached}/4 cached.`
+);
 
         await new Promise(resolve => setTimeout(resolve, 0));
       }
@@ -1415,11 +1575,15 @@ const imageryUrls = downloadSatelliteImageryCk?.checked
       if (offlineAreaNameInput) offlineAreaNameInput.value = '';
     }
 
-    setOfflineStatus(
-      `Offline area ready. Tiles: ${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
-      `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}. ` +
-      `OTN trails: ${otnCached ? 'cached' : 'not cached'}.`
-    );
+   const dataStatus = vectorDataResult.ok
+  ? 'All offline data cached.'
+  : `Offline data partially cached. Missing: ${vectorDataResult.failed.join(', ')}.`;
+
+setOfflineStatus(
+  `Offline area ready. Tiles: ${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
+  `Basemap: ${basemapUrls.length}. Imagery: ${imageryUrls.length}. ` +
+  dataStatus
+);
   } finally {
     offlineDownloadBtn.disabled = false;
     offlineEstimateBtn.disabled = false;
@@ -1436,12 +1600,26 @@ async function clearOfflineImagery() {
   localStorage.removeItem(OFFLINE_AREAS_KEY);
   renderOfflineAreas();
 
-  setOfflineStatus('Offline basemap/imagery caches and downloaded area boxes cleared. OTN/data cache was left in place.');
+  setOfflineStatus('Offline basemap/imagery caches and downloaded area boxes cleared. Offline vector data cache was left in place.');
 }
 
 offlineEstimateBtn?.addEventListener('click', estimateOfflineArea);
 offlineDownloadBtn?.addEventListener('click', downloadOfflineArea);
 offlineClearBtn?.addEventListener('click', clearOfflineImagery);
+
+useOfflineBoxCk?.addEventListener('change', syncOfflineBoxControls);
+
+offlineBoxWidthInput?.addEventListener('input', renderOfflineDownloadPreviewBox);
+offlineBoxHeightInput?.addEventListener('input', renderOfflineDownloadPreviewBox);
+
+offlineBoxWidthMinus?.addEventListener('click', () => adjustOfflineBoxInput(offlineBoxWidthInput, -0.05));
+offlineBoxWidthPlus?.addEventListener('click', () => adjustOfflineBoxInput(offlineBoxWidthInput, 0.05));
+offlineBoxHeightMinus?.addEventListener('click', () => adjustOfflineBoxInput(offlineBoxHeightInput, -0.05));
+offlineBoxHeightPlus?.addEventListener('click', () => adjustOfflineBoxInput(offlineBoxHeightInput, 0.05));
+
+map.on('moveend zoomend resize', renderOfflineDownloadPreviewBox);
+
+syncOfflineBoxControls();
 
 // Sensible defaults based on the current map zoom.
 (function initOfflineZoomDefaults() {
@@ -3559,6 +3737,67 @@ async function hasCache(name) {
   return names.includes(name);
 }
 
+async function checkOfflineDataFiles() {
+  if (!('caches' in window)) return null;
+
+  const expected = [
+    {
+      key: 'otn',
+      label: 'OTN trails offline data',
+      urls: ['./data/OTN.geojson', '/data/OTN.geojson']
+    },
+    {
+      key: 'osm',
+      label: 'OSM trails offline data',
+      urls: ['./data/OSM_paths.geojson', '/data/OSM_paths.geojson']
+    },
+    {
+      key: 'stocked',
+      label: 'Stocked lakes offline data',
+      urls: ['./data/Fish_Stocking_Data.geojson', '/data/Fish_Stocking_Data.geojson']
+    },
+    {
+      key: 'access',
+      label: 'Water access offline data',
+      urls: ['./data/Fishing_Access_Point.geojson', '/data/Fishing_Access_Point.geojson']
+    }
+  ];
+
+  try {
+    const cache = await caches.open(OFFLINE_DATA_CACHE);
+
+    const files = [];
+
+    for (const item of expected) {
+      let cached = false;
+
+      for (const url of item.urls) {
+        const match = await cache.match(url, { ignoreVary: true });
+        if (match) {
+          cached = true;
+          break;
+        }
+      }
+
+      files.push({
+        key: item.key,
+        label: item.label,
+        cached
+      });
+    }
+
+    const found = files.filter(f => f.cached).length;
+
+    return {
+      found,
+      total: expected.length,
+      files
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function countCacheItems(name) {
   if (!('caches' in window)) return null;
 
@@ -3599,6 +3838,7 @@ async function updateOfflineStatus() {
 
  const appCached = await hasCache(`ontario-trails-static-${window.APP_VERSION || 'dev'}`);
 const dataCached = await hasCache(OFFLINE_DATA_CACHE);
+const offlineDataFiles = await checkOfflineDataFiles();
 const imageryCount = getStoredOfflineTileCount();
 
   const rows = [];
@@ -3654,9 +3894,11 @@ async function updateLayerHealth() {
   const accessCount =
     featureCount(typeof accessLayer !== 'undefined' ? accessLayer : null);
 
- const imageryCached = getStoredOfflineTileCount();
 
- const dataCached = await countCacheItems(OFFLINE_DATA_CACHE);
+    const imageryCached = getStoredOfflineTileCount();
+
+const dataCached = await countCacheItems(OFFLINE_DATA_CACHE);
+const offlineDataFiles = await checkOfflineDataFiles();
 
   rows.push(statusRow(
     'Satellite imagery layer',
@@ -3671,13 +3913,13 @@ rows.push(statusRow(
 ));
 
   rows.push(statusRow(
-    'OTN trails',
+    'OTN trails layer',
     trailsCount && trailsCount > 0 ? `${trailsCount} feature layer(s)` : 'Not loaded yet',
     trailsCount && trailsCount > 0 ? 'status-ok' : 'status-warn'
   ));
 
   rows.push(statusRow(
-    'OSM trails',
+    'OSM trails layer',
     osmTrailsCount && osmTrailsCount > 0 ? `${osmTrailsCount} feature(s)` : 'Not loaded yet',
     osmTrailsCount && osmTrailsCount > 0 ? 'status-ok' : 'status-warn'
   ));
@@ -3694,11 +3936,21 @@ rows.push(statusRow(
     accessCount && accessCount > 0 ? 'status-ok' : 'status-warn'
   ));
 
+if (offlineDataFiles?.files?.length) {
+  offlineDataFiles.files.forEach(file => {
+    rows.push(statusRow(
+      file.label,
+      file.cached ? 'Cached' : 'Not cached',
+      file.cached ? 'status-ok' : 'status-warn'
+    ));
+  });
+} else {
   rows.push(statusRow(
-    'Data cache items',
-    dataCached == null ? 'Unknown' : `${dataCached} cached item(s)`,
-    dataCached > 0 ? 'status-ok' : 'status-warn'
+    'Offline data files',
+    'Unknown',
+    'status-warn'
   ));
+}
 
   rows.push(statusRow(
     'Current map zoom',

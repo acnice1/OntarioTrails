@@ -160,6 +160,30 @@
           <input id="offlineAreaName" type="text" placeholder="Area name, e.g., Sullivan Lake" style="width:100%;">
         </div>
 
+        <div class="row" style="display:grid;gap:6px;">
+  <label style="display:flex;align-items:center;gap:.4rem;">
+    <input type="checkbox" id="useOfflineBox">
+    Download box
+  </label>
+
+  <div style="display:grid;grid-template-columns:auto auto 4.5rem auto;gap:6px;align-items:center;">
+    <span>Width</span>
+    <button class="btn" type="button" id="offlineBoxWidthMinus">−</button>
+    <input id="offlineBoxWidth" type="number" min="0.20" max="1.00" step="0.05" value="0.60" disabled style="width:4.5rem;">
+    <button class="btn" type="button" id="offlineBoxWidthPlus">+</button>
+
+    <span>Height</span>
+    <button class="btn" type="button" id="offlineBoxHeightMinus">−</button>
+    <input id="offlineBoxHeight" type="number" min="0.20" max="1.00" step="0.05" value="0.40" disabled style="width:4.5rem;">
+    <button class="btn" type="button" id="offlineBoxHeightPlus">+</button>
+  </div>
+</div>
+
+<!-- 
+div class="muted" style="font-size:12px;line-height:1.35;margin-top:4px;">
+ Downloads offline basemap/satellite tiles for the selected area and caches trails, stocked lakes, and water access points.
+</div -->
+
 <div class="row">
   <label style="display:flex;align-items:center;gap:.4rem;">
     Max zoom
@@ -168,7 +192,7 @@
 </div>
 
 <div class="muted" style="font-size:12px;line-height:1.35;margin-top:4px;">
-  Downloads from z8 up to the selected max zoom. Offline basemap is available to z13; satellite imagery can go higher for smaller areas.
+  Offline basemap is available to z13; satellite imagery can go higher.
 </div>
 
         <div class="row" style="display:grid;gap:6px;">
@@ -178,7 +202,7 @@
   </label>
 
   <label>
-    <input type="checkbox" id="downloadSatelliteImagery">
+    <input type="checkbox" id="downloadSatelliteImagery" checked>
     Download satellite imagery tiles
   </label>
 </div>

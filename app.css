@@ -630,3 +630,32 @@ input[type="range"]::-moz-range-thumb{
 .leaflet-popup-pane {
   z-index: 1500;
 }
+.leaflet-control-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.leaflet-control-scale-line {
+  margin: 0 !important;
+}
+
+.scale-zoom-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(0,0,0,0.18);
+  color: #101828;
+
+  font: 11px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-weight: 700;
+  white-space: nowrap;
+
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
