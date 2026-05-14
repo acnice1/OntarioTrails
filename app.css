@@ -659,3 +659,53 @@ input[type="range"]::-moz-range-thumb{
 
   box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
+/* ==========================================================================
+   Saved plotted routes list
+   ========================================================================== */
+
+.route-list-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.route-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.route-main {
+  flex: 1 1 auto;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.route-title {
+  font-weight: 700;
+  line-height: 1.2;
+  color: #101828;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-meta {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.route-del {
+  border: 1px solid #e11d48;
+  border-radius: 8px;
+  padding: 0.3rem 0.55rem;
+  background: #fff;
+  color: #e11d48;
+  cursor: pointer;
+}
+
+.route-del:hover {
+  background: #fff1f2;
+}

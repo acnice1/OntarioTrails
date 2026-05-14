@@ -2157,6 +2157,7 @@ syncOfflineBoxControls();
 // ---------------------------------------------------------------------------
 const PIN_ICONS = {
   'Camping':  '🏕️',
+  'Trailhead': '🥾',
   'Water':    '💧',
   'Viewpoint':'📸',
   'Hazard':   '⚠️',
@@ -2703,8 +2704,9 @@ enableSaveIfReady();
 // Distance Measurement (temporary, click-to-add, low risk)
 // Added April 4, 2026 
 // ---------------------------------------------------------------------------
-const measureLayer = L.layerGroup().addTo(map);       // editable route
-const serverRoutesLayer = L.layerGroup();  // auto-loaded routes
+const measureLayer = L.layerGroup().addTo(map);        // current editable route
+const plottedRoutesLayer = L.layerGroup().addTo(map);  // saved plotted routes
+const serverRoutesLayer = L.layerGroup();              // auto-loaded routes
 const importedRoutesLayer = L.layerGroup().addTo(map); // optional uploaded routes
 
 let measureLine = L.polyline([], {
@@ -2731,6 +2733,40 @@ function getServerRouteStyle(idx) {
 }
 
 const MEASURE_KEY = 'ontarioTrails.measure.v2';
+
+const PLOTTED_ROUTES_KEY = 'ontarioTrails.plottedRoutes.v1';
+
+function loadPlottedRoutesFromStorage() {
+  try {
+    const raw = localStorage.getItem(PLOTTED_ROUTES_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr)
+      ? arr
+          .map((route, idx) => ({
+            id: route.id || `route-${Date.now()}-${idx}`,
+            name: route.name || `Route ${idx + 1}`,
+            createdAt: route.createdAt || new Date().toISOString(),
+            lengthKm: Number(route.lengthKm),
+            points: Array.isArray(route.points)
+              ? route.points
+                  .filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+                  .map(p => ({ lat: +p.lat, lng: +p.lng }))
+              : []
+          }))
+          .filter(route => route.points.length >= 2)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePlottedRoutesToStorage() {
+  try {
+    localStorage.setItem(PLOTTED_ROUTES_KEY, JSON.stringify(plottedRoutes));
+  } catch {}
+}
+
+let plottedRoutes = loadPlottedRoutesFromStorage();
 
 function loadMeasurementFromStorage() {
   try {
@@ -2774,10 +2810,46 @@ function formatRouteLengthKm(lengthKm) {
 
 
 function exportPlotRoute() {
-  if (!measurePoints.length) return;
+  if (!plottedRoutes.length) {
+    alert('No saved plotted routes to export. Save a route first.');
+    return;
+  }
 
   const payload = {
     version: 1,
+    type: 'plotted-routes',
+    exportedAt: new Date().toISOString(),
+    routes: plottedRoutes.map(route => ({
+      id: route.id,
+      name: route.name,
+      createdAt: route.createdAt,
+      lengthKm: Number.isFinite(+route.lengthKm)
+        ? +(+route.lengthKm).toFixed(2)
+        : +routeDistanceKm(route.points).toFixed(2),
+      points: route.points.map(p => ({
+        lat: +p.lat,
+        lng: +p.lng
+      }))
+    }))
+  };
+
+  const name = `plotted-routes_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  downloadText(name, JSON.stringify(payload, null, 2), 'application/json');
+}
+
+function defaultRouteName() {
+  return `Route ${plottedRoutes.length + 1}`;
+}
+
+function saveCurrentPlottedRoute() {
+  if (measurePoints.length < 2) return;
+
+  const cleanName = String(routeNameInput?.value || '').trim();
+
+  const route = {
+    id: `plotted-route-${Date.now()}`,
+    name: cleanName || defaultRouteName(),
+    createdAt: new Date().toISOString(),
     type: 'plot-route',
     lengthKm: +routeDistanceKm(measurePoints).toFixed(2),
     points: measurePoints.map(p => ({
@@ -2786,10 +2858,94 @@ function exportPlotRoute() {
     }))
   };
 
-  const name = `plot-route_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-  downloadText(name, JSON.stringify(payload, null, 2), 'application/json');
+  plottedRoutes.push(route);
+  savePlottedRoutesToStorage();
+
+  // Clear the active editable route so the next route can be plotted.
+  measurePoints = [];
+  saveMeasurementToStorage();
+  refreshMeasurement();
+
+  if (routeNameInput) routeNameInput.value = '';
+
+  renderPlottedRoutes();
+  renderRouteList();
 }
 
+function deletePlottedRoute(id) {
+  plottedRoutes = plottedRoutes.filter(route => route.id !== id);
+  savePlottedRoutesToStorage();
+  renderPlottedRoutes();
+  renderRouteList();
+}
+
+function renderPlottedRoutes() {
+  plottedRoutesLayer.clearLayers();
+
+  plottedRoutes.forEach((route, idx) => {
+    const pts = Array.isArray(route.points) ? route.points : [];
+    if (pts.length < 2) return;
+
+    const latlngs = pts.map(p => [p.lat, p.lng]);
+    const lengthKm = Number.isFinite(+route.lengthKm)
+      ? +route.lengthKm
+      : routeDistanceKm(pts);
+
+    const line = L.polyline(latlngs, {
+      color: getServerRouteColor(idx),
+      weight: 4,
+      opacity: 0.9
+    }).addTo(plottedRoutesLayer);
+
+    line.bindPopup(
+      `<b>${esc(route.name || `Route ${idx + 1}`)}</b><br>` +
+      `${pts.length} point(s)<br>` +
+      `Length: ${formatRouteLengthKm(lengthKm)}`
+    );
+  });
+}
+
+function renderRouteList() {
+  if (!routeList) return;
+
+  if (!plottedRoutes.length) {
+    routeList.innerHTML = `<div class="empty" style="opacity:.8">No saved routes yet.</div>`;
+    return;
+  }
+
+  const rows = plottedRoutes.map((route, idx) => {
+    const pts = Array.isArray(route.points) ? route.points : [];
+    const lengthKm = Number.isFinite(+route.lengthKm)
+      ? +route.lengthKm
+      : routeDistanceKm(pts);
+
+    return `
+      <div class="route-item" data-route-id="${esc(route.id)}">
+        <div class="route-main" data-action="zoom-route" data-route-id="${esc(route.id)}">
+          <div class="route-title">${esc(route.name || `Route ${idx + 1}`)}</div>
+          <div class="route-meta">${pts.length} point(s) · ${formatRouteLengthKm(lengthKm)}</div>
+        </div>
+
+        <button class="route-del" data-action="delete-route" data-route-id="${esc(route.id)}" title="Delete route">
+          🗑️
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  routeList.innerHTML = `<div class="route-list-wrap">${rows}</div>`;
+}
+
+function zoomToPlottedRoute(id) {
+  const route = plottedRoutes.find(r => r.id === id);
+  if (!route || !Array.isArray(route.points) || route.points.length < 2) return;
+
+  const bounds = routeBoundsFromPoints(route.points);
+
+  try {
+    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 });
+  } catch {}
+}
 
 async function importPlotRouteFromFile(file) {
   if (!file) return;
@@ -2798,33 +2954,50 @@ async function importPlotRouteFromFile(file) {
     const text = await file.text();
     const json = JSON.parse(text);
 
-    const pts = Array.isArray(json?.points)
-      ? json.points
-          .filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
-          .map(p => ({ lat: +p.lat, lng: +p.lng }))
-      : [];
+const incomingRoutes = Array.isArray(json?.routes)
+  ? json.routes
+  : [json];
 
-    if (!pts.length) {
-      alert('No valid route points found in file.');
-      return;
-    }
+let added = 0;
 
-const storedLengthKm = Number(json?.lengthKm);
+incomingRoutes.forEach((incoming, idx) => {
+  const pts = Array.isArray(incoming?.points)
+    ? incoming.points
+        .filter(p => Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+        .map(p => ({ lat: +p.lat, lng: +p.lng }))
+    : [];
 
-importedRoutes.push({
-  name: file.name.replace(/\.[^.]+$/, ''),
-  version: Number.isFinite(+json?.version) ? +json.version : 1,
-  type: json?.type || 'plot-route',
-  lengthKm: Number.isFinite(storedLengthKm) ? storedLengthKm : routeDistanceKm(pts),
-  points: pts
+  if (pts.length < 2) return;
+
+  const storedLengthKm = Number(incoming?.lengthKm);
+
+  plottedRoutes.push({
+    id: `imported-route-${Date.now()}-${idx}`,
+    name:
+      incoming.name ||
+      file.name.replace(/\.[^.]+$/, '') ||
+      `Imported Route ${plottedRoutes.length + 1}`,
+    createdAt: incoming.createdAt || new Date().toISOString(),
+    version: Number.isFinite(+incoming?.version) ? +incoming.version : 1,
+    type: incoming?.type || 'plot-route',
+    lengthKm: Number.isFinite(storedLengthKm) ? storedLengthKm : routeDistanceKm(pts),
+    points: pts
+  });
+
+  added++;
 });
 
-    renderImportedRoutes();
+if (!added) {
+  alert('No valid route points found in file.');
+  return;
+}
+
+savePlottedRoutesToStorage();
+renderPlottedRoutes();
+renderRouteList();
    
 
-    const bounds = routeBoundsFromPoints(pts);
-    try { map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 }); } catch {}
-  } catch (err) {
+   } catch (err) {
     console.warn('Route import failed:', err);
     alert('Could not import route file.');
   }
@@ -2841,6 +3014,10 @@ const exportRouteBtn   = document.getElementById('exportRouteBtn');
 const importRouteInput = document.getElementById('importRouteInput');
 const measureStatus    = document.getElementById('measureStatus');
 
+const routeNameInput   = document.getElementById('routeNameInput');
+const saveRouteBtn     = document.getElementById('saveRouteBtn');
+const routeList        = document.getElementById('routeList');
+
 function formatMeasureDistance(m) {
   if (!Number.isFinite(m) || m <= 0) return '0.00 km';
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`;
@@ -2854,6 +3031,10 @@ function updateMeasureStatus() {
 
   if (measureStatus) {
     measureStatus.textContent = `${measurePoints.length} point${measurePoints.length === 1 ? '' : 's'} · ${formatMeasureDistance(totalM)}`;
+  }
+
+  if (saveRouteBtn) {
+    saveRouteBtn.disabled = measurePoints.length < 2;
   }
 }
 
@@ -3051,13 +3232,14 @@ function toggleMeasurement() {
   }
 }
 // measurement listeners 
-
 measureToggleBtn?.addEventListener('click', toggleMeasurement);
 measureUndoBtn?.addEventListener('click', undoLastMeasurementPoint);
+
 measureClearBtn?.addEventListener('click', () => {
   clearMeasurement();
-  clearImportedRoutes();
 });
+
+saveRouteBtn?.addEventListener('click', saveCurrentPlottedRoute);
 exportRouteBtn?.addEventListener('click', exportPlotRoute);
 
 importRouteInput?.addEventListener('change', async (e) => {
@@ -3066,6 +3248,23 @@ importRouteInput?.addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
+routeList?.addEventListener('click', (e) => {
+  const actionEl = e.target.closest('[data-action]');
+  if (!actionEl) return;
+
+  const action = actionEl.getAttribute('data-action');
+  const id = actionEl.getAttribute('data-route-id');
+
+  if (!id) return;
+
+  if (action === 'delete-route') {
+    deletePlottedRoute(id);
+  }
+
+  if (action === 'zoom-route') {
+    zoomToPlottedRoute(id);
+  }
+});
 
 // Add measurement points only when measurement mode is enabled
 map.on('click', (e) => {
@@ -3081,7 +3280,10 @@ map.on('click', (e) => {
 });
 
 // Initial status
+// Initial status
 refreshMeasurement();
+renderPlottedRoutes();
+renderRouteList();
 
 
 
