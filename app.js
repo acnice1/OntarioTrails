@@ -3687,7 +3687,7 @@ const compassDirection = document.getElementById('compassDirection');
 
 const layerHealthStatus = document.getElementById('layerHealthStatus');
 const refreshLayerHealthBtn = document.getElementById('refreshLayerHealthBtn');
-
+const loadAllLayersBtn = document.getElementById('loadAllLayersBtn');
 const UTILITY_SETTINGS_KEY = 'ontarioTrails.utilitySettings.v1';
 
 let wakeLock = null;
@@ -4175,7 +4175,60 @@ if (offlineDataFiles?.files?.length) {
   layerHealthStatus.innerHTML = rows.join('');
 }
 
+async function loadAllLayersForHealth() {
+  if (loadAllLayersBtn) {
+    loadAllLayersBtn.disabled = true;
+    loadAllLayersBtn.textContent = 'Loading…';
+  }
+
+  try {
+    // OTN trails are already loaded at startup.
+    // Do not force showTrails checked and do not add/remove the layer.
+
+    // OSM trails are lazy-loaded.
+    try {
+      await ensureTrailsOSMLoaded();
+    } catch (err) {
+      console.warn('Could not load OSM trails:', err);
+    }
+
+    // Stocked lakes are lazy-loaded.
+    try {
+      await ensureStockedLoaded();
+    } catch (err) {
+      console.warn('Could not load stocked lakes:', err);
+    }
+
+    // Water access points are lazy-loaded.
+    try {
+      await ensureAccessLoaded();
+    } catch (err) {
+      console.warn('Could not load water access points:', err);
+    }
+
+    // Stored routes are loaded from ./data/routes/routes.json.
+    // initServerRoutes currently also applies visibility based on showServerRoutesCk,
+    // so only call it if routes have not already been loaded.
+    try {
+      if (!serverRoutes.length) await initServerRoutes();
+    } catch (err) {
+      console.warn('Could not load stored routes:', err);
+    }
+
+    await updateLayerHealth();
+    await updateOfflineStatus?.();
+
+  } finally {
+    if (loadAllLayersBtn) {
+      loadAllLayersBtn.disabled = false;
+      loadAllLayersBtn.textContent = 'Load all';
+    }
+  }
+}
+
+// wiring 
 refreshLayerHealthBtn?.addEventListener('click', updateLayerHealth);
+loadAllLayersBtn?.addEventListener('click', loadAllLayersForHealth);
 
 map.on('layeradd layerremove', () => {
   if (panel?.classList.contains('utility-tabs-mode')) {
