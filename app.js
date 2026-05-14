@@ -1508,10 +1508,14 @@ const imageryUrls = downloadSatelliteImageryCk?.checked
 
      const vectorDataResult = await cacheOfflineVectorData();
     
-  if (!jobs.length) {
-    setOfflineStatus('No map tiles selected.');
-    return;
-  }
+ if (!jobs.length) {
+  const dataStatus = vectorDataResult.ok
+    ? 'All offline data cached.'
+    : `Offline data partially cached. Missing: ${vectorDataResult.failed.join(', ')}.`;
+
+  setOfflineStatus(`No map tiles selected. ${dataStatus}`);
+  return;
+}
 
   if (jobs.length > OFFLINE_MAX_TILE_DOWNLOAD) {
     setOfflineStatus(
@@ -3836,10 +3840,12 @@ async function updateOfflineStatus() {
 
   const offlinePreview = !!settingOfflinePreview?.checked;
 
- const appCached = await hasCache(`ontario-trails-static-${window.APP_VERSION || 'dev'}`);
-const dataCached = await hasCache(OFFLINE_DATA_CACHE);
-const offlineDataFiles = await checkOfflineDataFiles();
-const imageryCount = getStoredOfflineTileCount();
+  const appVersion = window.ONTARIO_TRAILS_VERSION || window.APP_VERSION || 'dev';
+  const appCached = await hasCache(`ontario-trails-static-${appVersion}`);
+
+  const dataCached = await hasCache(OFFLINE_DATA_CACHE);
+  const offlineDataFiles = await checkOfflineDataFiles();
+  const imageryCount = getStoredOfflineTileCount();
 
   const rows = [];
 

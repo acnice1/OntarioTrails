@@ -17,11 +17,11 @@ const USER_OFFLINE_DATA_CACHE    = 'ontario-trails-offline-data-v1';
 // Limit sizes to avoid unbounded growth.
 // Tune these based on available device storage and your expected usage.
 const LIMITS = {
-  [STATIC_CACHE]: 60,   // HTML/CSS/JS/manifest/icons
-  [DATA_CACHE]:   80,   // local .geojson / .json data
-  [TILE_CACHE]:   800   // viewed/preloaded tiles and CDN assets
+  [STATIC_CACHE]: 80,                 // HTML/CSS/JS/manifest/icons
+  [DATA_CACHE]: 120,                  // local .geojson / .json data
+  [TILE_CACHE]: 3000,                 // opportunistic viewed OSM/LIO/CDN tiles
+  [USER_OFFLINE_BASEMAP_CACHE]: 20000 // durable viewed/downloaded R2 basemap tiles
 };
-
 // ===== App shell to pre-cache ================================================
 // Keep same-origin files here only.
 const APP_SHELL = [
@@ -84,6 +84,7 @@ function isOfflineBasemapURL(url) {
   return (
     /\.(?:png|jpg|jpeg|webp)(\?|#|$)/i.test(url.pathname) &&
     (
+      url.hostname === 'pub-19f9e9e1492a49faaa32e257355e1973.r2.dev' ||
       url.pathname.includes('/offline-basemap/') ||
       /offline-basemap/i.test(url.hostname)
     )
@@ -173,6 +174,33 @@ async function networkFirst(req, cacheName, timeoutMs = 8000, limitName = cacheN
   } catch {
     const cached = await cache.match(req, { ignoreVary: true });
     if (cached) return cached;
+
+    return new Response('Offline', {
+      status: 503,
+      statusText: 'Offline'
+    });
+  }
+}
+
+async function networkFirstWithDataFallback(req, primaryCacheName, fallbackCacheName, timeoutMs = 8000) {
+  const primaryCache = await caches.open(primaryCacheName);
+
+  try {
+    const netRes = await fromNetworkWithTimeout(req, timeoutMs);
+
+    if (netRes && (netRes.ok || netRes.type === 'opaque')) {
+      await primaryCache.put(req, netRes.clone());
+      await trimCache(primaryCacheName, LIMITS[primaryCacheName]);
+    }
+
+    return netRes;
+  } catch {
+    const primaryMatch = await primaryCache.match(req, { ignoreVary: true });
+    if (primaryMatch) return primaryMatch;
+
+    const fallbackCache = await caches.open(fallbackCacheName);
+    const fallbackMatch = await fallbackCache.match(req, { ignoreVary: true });
+    if (fallbackMatch) return fallbackMatch;
 
     return new Response('Offline', {
       status: 503,
@@ -426,12 +454,14 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // 2) Same-origin data: network first with cache fallback.
-  // Handles .geojson and .json.
-  if (isDataURL(url)) {
-    event.respondWith(networkFirst(req, DATA_CACHE, 8000));
-    return;
-  }
+  // 2) Same-origin data: network first with fallback to durable offline data cache.
+// Handles .geojson and .json.
+if (isDataURL(url)) {
+  event.respondWith(
+    networkFirstWithDataFallback(req, DATA_CACHE, USER_OFFLINE_DATA_CACHE, 8000)
+  );
+  return;
+}
 
   // App version should be checked from network first so update detection is reliable.
   if (isSameOrigin(url) && url.pathname.endsWith('/app-version.js')) {
@@ -445,17 +475,14 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // 3b) User-managed offline basemap tiles from R2/custom domain.
+ 
+// 3b) User-managed offline basemap tiles from R2/custom domain.
 // Use the durable basemap cache, not the small generic TILE_CACHE.
-function isOfflineBasemapURL(url) {
-  return (
-    /\.(?:png|jpg|jpeg|webp)(\?|#|$)/i.test(url.pathname) &&
-    (
-      url.hostname === 'pub-19f9e9e1492a49faaa32e257355e1973.r2.dev' ||
-      url.pathname.includes('/offline-basemap/') ||
-      /offline-basemap/i.test(url.hostname)
-    )
+if (isOfflineBasemapURL(url)) {
+  event.respondWith(
+    staleWhileRevalidate(req, USER_OFFLINE_BASEMAP_CACHE)
   );
+  return;
 }
 
   // 4) Tiles and CDN assets: stale-while-revalidate.
