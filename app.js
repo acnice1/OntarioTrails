@@ -303,6 +303,10 @@ const constrained = {
   const SEARCH_POINT_ZOOM     = 13;       // target zoom for point results
   const SEARCH_BOUNDS_PADDING = [32, 32]; // a bit more breathing room
 
+    // Minimum OSM trail segment length shown in search results only.
+  // This does NOT affect OSM trail caching or map display.
+  const OSM_TRAIL_SEARCH_MIN_SEGMENT_LENGTH_M = 200;
+
     // Cached OSM trail search highlight layer.
   // This is separate from the main OSM trail layer so selected search results stand out.
   const osmTrailSearchHighlight = L.geoJSON(null, {
@@ -465,9 +469,18 @@ const constrained = {
     const qNorm = normalizeSearchText(q);
     if (qNorm.length < 3) return [];
 
-    const features = Array.isArray(osmTrailFeatures) ? osmTrailFeatures : [];
-    if (!features.length) return [];
+        const features = Array.isArray(osmTrailFeatures)
+      ? osmTrailFeatures.filter(feature => {
+          const km =
+            typeof lineStringLengthKm === 'function'
+              ? lineStringLengthKm(feature?.geometry?.coordinates || [])
+              : 0;
 
+          return Number.isFinite(km) && (km * 1000) >= OSM_TRAIL_SEARCH_MIN_SEGMENT_LENGTH_M;
+        })
+      : [];
+
+    if (!features.length) return [];
     const origin = map.getCenter();
     const groups = [];
 
@@ -652,7 +665,7 @@ const constrained = {
         div.innerHTML = `
           <div style="font-weight:700">${esc(title)}</div>
           <div class="muted" style="font-size:12px;margin-top:2px">
-            OSM trail · ${segmentLength}${count}${distance ? ` · ${distance}` : ''}
+                       OSM trail · ${segmentLength}${count}${distance ? ` · ${distance}` : ''}
           </div>
         `;
 
@@ -1408,19 +1421,32 @@ function trailOSMPopupContent(p = {}, feature = null) {
   return html;
 }
 
-function osmTrailStyle(feature) {
+function osmTrailVisualStyle(feature) {
   const p = feature?.properties || {};
   const named = !!osmTrailName(p);
 
   return {
     color: named ? '#8b5a2b' : '#b59a7a',
-    weight: named ? 3 : 2,
-    opacity: named ? 0.9 : 0.65
+    weight: named ? 2.0 : 1.2,
+    opacity: named ? 0.8 : 0.5
   };
 }
 
-const trailsOSMLayer = L.geoJSON(null, {
-  style: osmTrailStyle,
+function osmTrailHitStyle() {
+  return {
+    color: '#000',
+    weight: 18,
+    opacity: 0.01
+  };
+}
+
+const trailsOSMVisualLayer = L.geoJSON(null, {
+  style: osmTrailVisualStyle,
+  interactive: false
+});
+
+const trailsOSMHitLayer = L.geoJSON(null, {
+  style: osmTrailHitStyle,
   onEachFeature: (feat, layer) => {
     layer.bindPopup(trailOSMPopupContent(feat.properties || {}, feat), { maxWidth: 340 });
 
@@ -1430,6 +1456,12 @@ const trailsOSMLayer = L.geoJSON(null, {
     });
   }
 });
+
+const trailsOSMLayer = L.layerGroup([
+  trailsOSMVisualLayer,
+  trailsOSMHitLayer
+]);
+
 
 function loadOsmTrailFeaturesFromStorage() {
   try {
@@ -1475,11 +1507,16 @@ function saveOsmTrailAreas(areas) {
 }
 
 function renderOsmTrailsLayer() {
-  trailsOSMLayer.clearLayers();
-  trailsOSMLayer.addData({
+  const collection = {
     type: 'FeatureCollection',
     features: osmTrailFeatures
-  });
+  };
+
+  trailsOSMVisualLayer.clearLayers();
+  trailsOSMHitLayer.clearLayers();
+
+  trailsOSMVisualLayer.addData(collection);
+  trailsOSMHitLayer.addData(collection);
 }
 
 function addOrRefreshOsmTrailAreaRecord(bounds, featureCount) {
@@ -4256,6 +4293,16 @@ renderRouteList();
   // Apply to existing controls
   restoreCheckbox(showTrails, (on) => { on ? trailsLayer.addTo(map) : map.removeLayer(trailsLayer); });
 
+    restoreCheckbox(showTrailsOSM, async (on) => {
+    await ensureTrailsOSMLoaded();
+
+    if (on) {
+      trailsOSMLayer.addTo(map);
+    } else {
+      map.removeLayer(trailsOSMLayer);
+    }
+  });
+
   restoreCheckbox(showStocked, async (on) => { 
     if (on) { await ensureStockedLoaded(); if (stockedLoaded) stockedLayer.addTo(map); else showStocked.checked = false; }
     else map.removeLayer(stockedLayer);
@@ -4805,8 +4852,9 @@ function clearOsmTrailCache() {
     osmTrailFeatures = [];
   }
 
-  try {
-    trailsOSMLayer?.clearLayers?.();
+   try {
+    trailsOSMVisualLayer?.clearLayers?.();
+    trailsOSMHitLayer?.clearLayers?.();
   } catch {}
 
   try {
@@ -4899,9 +4947,9 @@ async function updateLayerHealth() {
     featureCount(typeof trailsLayer !== 'undefined' ? trailsLayer : null);
 
   const osmTrailsCount =
-    featureCount(typeof trailsOSMLayer !== 'undefined' ? trailsOSMLayer : null);
-  
-    const osmHealth = getOsmTrailCacheHealth();
+    featureCount(typeof trailsOSMVisualLayer !== 'undefined' ? trailsOSMVisualLayer : null);
+
+  const osmHealth = getOsmTrailCacheHealth();
 
   const stockedCount =
     featureCount(typeof stockedLayer !== 'undefined' ? stockedLayer : null);
