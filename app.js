@@ -303,49 +303,389 @@ const constrained = {
   const SEARCH_POINT_ZOOM     = 13;       // target zoom for point results
   const SEARCH_BOUNDS_PADDING = [32, 32]; // a bit more breathing room
 
-  function renderResults(list) {
+    // Cached OSM trail search highlight layer.
+  // This is separate from the main OSM trail layer so selected search results stand out.
+  const osmTrailSearchHighlight = L.geoJSON(null, {
+    style: {
+      color: '#ff7a00',
+      weight: 7,
+      opacity: 0.95
+    },
+    onEachFeature: (feat, layer) => {
+      layer.bindPopup(
+        typeof trailOSMPopupContent === 'function'
+          ? trailOSMPopupContent(feat.properties || {}, feat)
+          : 'OSM trail',
+        { maxWidth: 340 }
+      );
+    }
+  }).addTo(map);
+
+  function normalizeSearchText(s) {
+    return String(s || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function osmResultDistanceText(meters) {
+    if (!Number.isFinite(+meters)) return '';
+    const m = +meters;
+
+    if (m < 1000) return `${Math.round(m)} m from map centre`;
+    return `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km from map centre`;
+  }
+
+  function featureBoundsFromGeoJSON(feature) {
+    try {
+      const layer = L.geoJSON(feature);
+      const bounds = layer.getBounds();
+      return bounds?.isValid?.() ? bounds : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function longestFeature(features = []) {
+    let best = null;
+    let bestKm = -1;
+
+    features.forEach(feature => {
+      const km =
+        typeof lineStringLengthKm === 'function'
+          ? lineStringLengthKm(feature?.geometry?.coordinates || [])
+          : 0;
+
+      if (km > bestKm) {
+        bestKm = km;
+        best = feature;
+      }
+    });
+
+    return best || features[0] || null;
+  }
+
+  function featureCollectionBounds(features = []) {
+    let combined = null;
+
+    features.forEach(feature => {
+      const b = featureBoundsFromGeoJSON(feature);
+      if (!b) return;
+
+      if (!combined) combined = b;
+      else combined.extend(b);
+    });
+
+    return combined;
+  }
+
+  function featureCenter(feature) {
+    const b = featureBoundsFromGeoJSON(feature);
+    return b ? b.getCenter() : null;
+  }
+
+  function osmFeatureSearchName(feature) {
+    const p = feature?.properties || {};
+
+    if (typeof osmTrailName === 'function') {
+      return osmTrailName(p);
+    }
+
+    return (
+      p.name ||
+      p['name:en'] ||
+      p.official_name ||
+      p.alt_name ||
+      p.ref ||
+      ''
+    );
+  }
+
+  function osmFeatureSearchDisplayName(feature) {
+    const p = feature?.properties || {};
+
+    if (typeof osmTrailDisplayName === 'function') {
+      return osmTrailDisplayName(p);
+    }
+
+    return osmFeatureSearchName(feature) || `Unnamed OSM ${p.highway || 'path'}`;
+  }
+
+  function osmFeatureSearchId(feature) {
+    const p = feature?.properties || {};
+
+    if (typeof osmTrailId === 'function') {
+      return osmTrailId(p);
+    }
+
+    if (p.__osmType && p.__osmId) return `${p.__osmType}/${p.__osmId}`;
+    return '';
+  }
+
+  function osmFeatureSearchKey(feature) {
+    if (typeof osmTrailFeatureKey === 'function') {
+      return osmTrailFeatureKey(feature);
+    }
+
+    const p = feature?.properties || {};
+    if (p.__osmType && p.__osmId) return `${p.__osmType}:${p.__osmId}`;
+    return JSON.stringify(feature?.geometry?.coordinates || []);
+  }
+
+  function osmFeatureMatchesQuery(feature, qNorm) {
+    const p = feature?.properties || {};
+    const name = osmFeatureSearchName(feature);
+    const id = osmFeatureSearchId(feature);
+
+    const haystack = normalizeSearchText([
+      name,
+      id,
+      p.ref,
+      p.highway,
+      p.surface,
+      p.access,
+      p.foot,
+      p.bicycle,
+      p.horse
+    ].filter(Boolean).join(' '));
+
+    // Normal named trail search.
+    if (haystack.includes(qNorm)) return true;
+
+    // Allow a deliberate search for unnamed cached paths.
+    if (!name && ['unnamed', 'unnamed osm', 'osm path', 'osm trail'].includes(qNorm)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function searchCachedOsmTrails(q) {
+    const qNorm = normalizeSearchText(q);
+    if (qNorm.length < 3) return [];
+
+    const features = Array.isArray(osmTrailFeatures) ? osmTrailFeatures : [];
+    if (!features.length) return [];
+
+    const origin = map.getCenter();
+    const groups = [];
+
+    features
+      .filter(feature => osmFeatureMatchesQuery(feature, qNorm))
+      .forEach(feature => {
+        const name = osmFeatureSearchName(feature);
+        const displayName = osmFeatureSearchDisplayName(feature);
+        const center = featureCenter(feature);
+        const baseKey = name
+          ? normalizeSearchText(name)
+          : normalizeSearchText(osmFeatureSearchId(feature) || displayName);
+
+        // Group same-name segments that are reasonably nearby.
+        // Same name far away becomes a separate result.
+        let group = null;
+
+        if (name && center) {
+          group = groups.find(g =>
+            g.baseKey === baseKey &&
+            g.center &&
+            g.center.distanceTo(center) <= 15000
+          );
+        } else {
+          group = groups.find(g => g.baseKey === baseKey);
+        }
+
+        if (!group) {
+          group = {
+            __kind: 'osmTrail',
+            class: 'osm-trail',
+            type: 'trail',
+            baseKey,
+            name: displayName,
+            center,
+            features: []
+          };
+          groups.push(group);
+        }
+
+        group.features.push(feature);
+
+        const bounds = featureCollectionBounds(group.features);
+        if (bounds) {
+          group.bbox = bounds;
+          group.center = bounds.getCenter();
+        }
+      });
+
+    return groups
+      .map(group => {
+        const representative = longestFeature(group.features);
+        const lengthKm =
+          typeof lineStringLengthKm === 'function'
+            ? lineStringLengthKm(representative?.geometry?.coordinates || [])
+            : null;
+
+        const center = group.center || featureCenter(representative);
+        const distanceMeters = center ? origin.distanceTo(center) : Infinity;
+
+        return {
+          ...group,
+          representative,
+          center,
+          distanceMeters,
+          lengthKm,
+          properties: {
+            display_name: group.name,
+            source: 'Cached OSM trails'
+          }
+        };
+      })
+      .sort((a, b) => {
+        const an = normalizeSearchText(a.name);
+        const bn = normalizeSearchText(b.name);
+
+        const aExact = an === qNorm ? 1 : 0;
+        const bExact = bn === qNorm ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+
+        const aStarts = an.startsWith(qNorm) ? 1 : 0;
+        const bStarts = bn.startsWith(qNorm) ? 1 : 0;
+        if (aStarts !== bStarts) return bStarts - aStarts;
+
+        return (a.distanceMeters || Infinity) - (b.distanceMeters || Infinity);
+      })
+      .slice(0, 10);
+  }
+
+  function openOsmTrailSearchResult(result) {
+    if (!result?.features?.length) return;
+
+    // Ensure main OSM trails are visible.
+    if (showTrailsOSM) showTrailsOSM.checked = true;
+
+    try {
+      if (typeof ensureTrailsOSMLoaded === 'function') {
+        ensureTrailsOSMLoaded();
+      }
+
+      if (typeof trailsOSMLayer !== 'undefined' && !map.hasLayer(trailsOSMLayer)) {
+        trailsOSMLayer.addTo(map);
+      }
+    } catch {}
+
+    // Highlight the matched grouped trail result.
+    osmTrailSearchHighlight.clearLayers();
+    osmTrailSearchHighlight.addData({
+      type: 'FeatureCollection',
+      features: result.features
+    });
+
+    const bounds = result.bbox || featureCollectionBounds(result.features);
+
+    if (bounds) {
+      map.fitBounds(bounds, {
+        padding: SEARCH_BOUNDS_PADDING,
+        maxZoom: SEARCH_MAX_ZOOM_BBOX
+      });
+    } else if (result.center) {
+      map.setView(result.center, SEARCH_POINT_ZOOM);
+    }
+
+    const repKey = osmFeatureSearchKey(result.representative);
+
+    setTimeout(() => {
+      const layers = osmTrailSearchHighlight.getLayers();
+
+      const repLayer =
+        layers.find(layer => osmFeatureSearchKey(layer.feature) === repKey) ||
+        layers[0];
+
+      if (repLayer) {
+        const popupLatLng =
+          repLayer.getBounds?.()?.getCenter?.() ||
+          result.center ||
+          map.getCenter();
+
+        try {
+          repLayer.openPopup(popupLatLng);
+        } catch {}
+      }
+    }, 150);
+  }
+
+    function renderResults(list) {
     if (!searchResults) return;
     searchResults.innerHTML = '';
 
-    // Handle empty or undefined results
     if (!Array.isArray(list) || list.length === 0) {
       setResultsMessage('No results found.');
       return;
     }
 
-    // If Nominatim hit its result cap, warn that results may be incomplete
-    const MAX_NOM_RESULTS = 10;
+    const MAX_RESULTS = 12;
 
-    if (list.length >= MAX_NOM_RESULTS) {
+    if (list.length >= MAX_RESULTS) {
       const note = document.createElement('div');
       note.className = 'empty';
       note.style.fontStyle = 'italic';
       note.style.padding = '6px 10px';
-      note.textContent = 'Showing first ' + MAX_NOM_RESULTS + ' matches (try refining your search)';
+      note.textContent = `Showing first ${MAX_RESULTS} matches. Try refining your search.`;
       searchResults.appendChild(note);
     }
 
-    // Render up to MAX_NOM_RESULTS results
-    list.slice(0, MAX_NOM_RESULTS).forEach(r => {
+    list.slice(0, MAX_RESULTS).forEach(r => {
       const div = document.createElement('div');
       div.className = 'item';
+
+      if (r.__kind === 'osmTrail') {
+        const title = r.name || 'OSM trail';
+        const segmentLength =
+          Number.isFinite(+r.lengthKm)
+            ? `${(+r.lengthKm).toFixed(2)} km segment`
+            : 'segment length unknown';
+
+        const distance = osmResultDistanceText(r.distanceMeters);
+        const count = Array.isArray(r.features) && r.features.length > 1
+          ? ` · ${r.features.length} segments`
+          : '';
+
+        div.innerHTML = `
+          <div style="font-weight:700">${esc(title)}</div>
+          <div class="muted" style="font-size:12px;margin-top:2px">
+            OSM trail · ${segmentLength}${count}${distance ? ` · ${distance}` : ''}
+          </div>
+        `;
+
+        div.addEventListener('click', () => {
+          openOsmTrailSearchResult(r);
+        });
+
+        searchResults.appendChild(div);
+        return;
+      }
+
       div.textContent = r.name || r.html || r.properties?.display_name || 'Result';
-  div.addEventListener('click', () => {
-    if (r.bbox) {
-      map.fitBounds(r.bbox, { maxZoom: SEARCH_MAX_ZOOM_BBOX, padding: SEARCH_BOUNDS_PADDING });
-    } else if (r.center) {
-      map.setView(r.center, SEARCH_POINT_ZOOM);
-    }
 
-    if (searchMarker) map.removeLayer(searchMarker);
-    if (r.center) {
-      searchMarker = L.marker(r.center)
-        .addTo(map)
-        .bindPopup(r.name || r.properties?.display_name || 'Location')
-        .openPopup();
-    }
+      div.addEventListener('click', () => {
+        if (r.bbox) {
+          map.fitBounds(r.bbox, {
+            maxZoom: SEARCH_MAX_ZOOM_BBOX,
+            padding: SEARCH_BOUNDS_PADDING
+          });
+        } else if (r.center) {
+          map.setView(r.center, SEARCH_POINT_ZOOM);
+        }
 
+        if (searchMarker) map.removeLayer(searchMarker);
+
+        if (r.center) {
+          searchMarker = L.marker(r.center)
+            .addTo(map)
+            .bindPopup(r.name || r.properties?.display_name || 'Location')
+            .openPopup();
+        }
       });
+
       searchResults.appendChild(div);
     });
   }
@@ -547,11 +887,18 @@ let extras = [];
   extras.push(...nrcanResults);
 }
 
-    // 3. Merge + dedupe
-    let merged = dedupeBySignature([...primary, ...extras]);
 
-    // 4. KEY CHANGE: prioritize water results
-// 4. Sort by water relevance first, then distance from current map centre
+    // 3. Search cached OSM trails.
+    // This is local/offline only. Online Overpass trail-name search will be a later pass.
+    const osmTrailResults = searchCachedOsmTrails(q);
+
+    // Merge + dedupe.
+    // Keep OSM trail results first so named trail matches are visible before generic geocoder results.
+    let merged = dedupeBySignature([...osmTrailResults, ...primary, ...extras]);
+    
+    // 5. Sort by water relevance first, then distance from current map centre.
+    // OSM trail results remain eligible and will usually appear near the top when name-matched.    
+
 const origin = map.getCenter();
 
 merged.sort((a, b) => {
