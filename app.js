@@ -1681,22 +1681,18 @@ async function cacheOfflineVectorData() {
   if (!('caches' in window)) return {
     ok: false,
     cached: 0,
+    total: 3,
     failed: ['Cache API unavailable']
   };
 
+  // OSM trails are no longer cached from ./data/OSM_paths.geojson.
+  // They now use the browser localStorage cache populated by live Overpass loads.
   const datasets = [
     {
       name: 'OTN trails',
       candidates: [
         './data/OTN.geojson',
         '/data/OTN.geojson'
-      ]
-    },
-    {
-      name: 'OSM trails',
-      candidates: [
-        './data/OSM_paths.geojson',
-        '/data/OSM_paths.geojson'
       ]
     },
     {
@@ -1745,6 +1741,7 @@ async function cacheOfflineVectorData() {
   return {
     ok: failed.length === 0,
     cached,
+    total: datasets.length,
     failed
   };
 }
@@ -1942,7 +1939,7 @@ setOfflineStatus(
 setOfflineStatus(
   `Offline download: ${i + 1}/${jobs.length} tiles processed. ` +
   `${downloaded} new, ${alreadyCached} already cached, ${failed} failed. ` +
-  `Data: ${vectorDataResult.cached}/4 cached.`
+  `Data: ${vectorDataResult.cached}/${vectorDataResult.total ?? 3} cached.`
 );
 
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -4321,25 +4318,22 @@ async function hasCache(name) {
 async function checkOfflineDataFiles() {
   if (!('caches' in window)) return null;
 
+  // OSM trails are intentionally excluded here.
+  // They are tracked separately through localStorage / Overpass cache health.
   const expected = [
     {
       key: 'otn',
-      label: 'OTN trails offline data',
+      label: 'OTN trails static data',
       urls: ['./data/OTN.geojson', '/data/OTN.geojson']
     },
     {
-      key: 'osm',
-      label: 'OSM trails offline data',
-      urls: ['./data/OSM_paths.geojson', '/data/OSM_paths.geojson']
-    },
-    {
       key: 'stocked',
-      label: 'Stocked lakes offline data',
+      label: 'Stocked lakes static data',
       urls: ['./data/Fish_Stocking_Data.geojson', '/data/Fish_Stocking_Data.geojson']
     },
     {
       key: 'access',
-      label: 'Water access offline data',
+      label: 'Water access static data',
       urls: ['./data/Fishing_Access_Point.geojson', '/data/Fishing_Access_Point.geojson']
     }
   ];
@@ -4411,6 +4405,95 @@ function featureCount(layer) {
 function statusRow(label, value, cls = 'status-ok') {
   return `<div class="status-item"><strong>${label}</strong><span class="${cls}">${value}</span></div>`;
 }
+function getOsmTrailCacheHealth() {
+  const summary =
+    typeof osmTrailCacheSummary === 'function'
+      ? osmTrailCacheSummary()
+      : { total: 0, named: 0, unnamed: 0 };
+
+  const areas =
+    typeof loadOsmTrailAreas === 'function'
+      ? loadOsmTrailAreas()
+      : [];
+
+  let lastLoaded = null;
+
+  areas.forEach(area => {
+    const t = area?.createdAt ? new Date(area.createdAt).getTime() : NaN;
+    if (Number.isFinite(t) && (!lastLoaded || t > lastLoaded)) {
+      lastLoaded = t;
+    }
+  });
+
+  return {
+    ...summary,
+    areaCount: areas.length,
+    lastLoaded
+  };
+}
+
+function formatOsmTrailCacheDate(ts) {
+  if (!ts) return 'Never';
+
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return 'Unknown';
+  }
+}
+
+function clearOsmTrailCache() {
+  const ok = confirm(
+    'Clear all cached OSM trails? This will remove locally stored Overpass trail data, but will not affect pins, routes, basemap tiles, or satellite imagery.'
+  );
+
+  if (!ok) return;
+
+  try {
+    localStorage.removeItem(OSM_TRAILS_CACHE_KEY);
+    localStorage.removeItem(OSM_TRAILS_AREAS_KEY);
+  } catch {}
+
+  if (Array.isArray(osmTrailFeatures)) {
+    osmTrailFeatures = [];
+  }
+
+  try {
+    trailsOSMLayer?.clearLayers?.();
+  } catch {}
+
+  try {
+    updateOsmTrailStatusIdle?.();
+  } catch {}
+
+  try {
+    updateLayerHealth?.();
+  } catch {}
+}
+
+function ensureOsmTrailHealthActions() {
+  if (!layerHealthStatus) return;
+
+  let wrap = document.getElementById('osmTrailHealthActions');
+
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'osmTrailHealthActions';
+    wrap.className = 'row';
+    wrap.style.marginTop = '8px';
+
+    const btn = document.createElement('button');
+    btn.id = 'clearOsmTrailCacheBtn';
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = 'Clear OSM trail cache';
+
+    btn.addEventListener('click', clearOsmTrailCache);
+
+    wrap.appendChild(btn);
+    layerHealthStatus.insertAdjacentElement('afterend', wrap);
+  }
+}
 
 async function updateOfflineStatus() {
   if (!settingsOfflineStatus) return;
@@ -4470,6 +4553,8 @@ async function updateLayerHealth() {
 
   const osmTrailsCount =
     featureCount(typeof trailsOSMLayer !== 'undefined' ? trailsOSMLayer : null);
+  
+    const osmHealth = getOsmTrailCacheHealth();
 
   const stockedCount =
     featureCount(typeof stockedLayer !== 'undefined' ? stockedLayer : null);
@@ -4503,8 +4588,32 @@ rows.push(statusRow(
 
   rows.push(statusRow(
     'OSM trails layer',
-    osmTrailsCount && osmTrailsCount > 0 ? `${osmTrailsCount} feature(s)` : 'Not loaded yet',
-    osmTrailsCount && osmTrailsCount > 0 ? 'status-ok' : 'status-warn'
+    layerIsOn(trailsOSMLayer) ? 'On' : 'Off',
+    layerIsOn(trailsOSMLayer) ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'OSM trail cache',
+    osmHealth.total > 0 ? `${osmHealth.total} segment(s)` : 'Empty',
+    osmHealth.total > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'OSM named trails',
+    `${osmHealth.named} named / ${osmHealth.unnamed} unnamed`,
+    osmHealth.total > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'OSM loaded areas',
+    osmHealth.areaCount > 0 ? `${osmHealth.areaCount} area(s)` : 'None',
+    osmHealth.areaCount > 0 ? 'status-ok' : 'status-warn'
+  ));
+
+  rows.push(statusRow(
+    'OSM last loaded',
+    formatOsmTrailCacheDate(osmHealth.lastLoaded),
+    osmHealth.lastLoaded ? 'status-ok' : 'status-warn'
   ));
 
   rows.push(statusRow(
@@ -4548,6 +4657,8 @@ if (offlineDataFiles?.files?.length) {
   ));
 
   layerHealthStatus.innerHTML = rows.join('');
+  ensureOsmTrailHealthActions();
+
 }
 
 async function loadAllLayersForHealth() {
