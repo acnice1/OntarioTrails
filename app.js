@@ -897,89 +897,464 @@ if (showTrails?.checked) trailsLayer.addTo(map);
     showTrails.checked ? trailsLayer.addTo(map) : map.removeLayer(trailsLayer);
   });
 
+
 // ---------------------------------------------------------------------------
-// Trails (OSM_paths.geojson) + toggle
+// Trails (OSM Overpass live/cache) + toggle
 // ---------------------------------------------------------------------------
-function trailOSMPopupContent(p = {}) {
+// First-pass implementation:
+// - Replaces the static ./data/OSM_paths.geojson dependency.
+// - Checkbox shows/hides locally cached OSM trails.
+// - Load/Refresh button downloads OSM trail/path ways for the visible map area.
+// - Bulk visible-area loading is blocked below z13 to reduce Overpass load.
+// - Downloaded trails are stored in browser localStorage and reused offline.
+
+const loadOsmTrailsBtn = document.getElementById('loadOsmTrailsBtn');
+const osmTrailsStatus = document.getElementById('osmTrailsStatus');
+
+const OSM_TRAILS_CACHE_KEY = 'ontarioTrails.osmTrails.features.v1';
+const OSM_TRAILS_AREAS_KEY = 'ontarioTrails.osmTrails.areas.v1';
+const OSM_TRAILS_MIN_LOAD_ZOOM = 13;
+const OSM_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+
+let osmTrailFeatures = [];
+let osmTrailsLoading = false;
+
+function setOsmTrailsStatus(msg) {
+  if (osmTrailsStatus) osmTrailsStatus.textContent = msg;
+}
+
+function osmTrailName(p = {}) {
+  return (
+    p.name ||
+    p['name:en'] ||
+    p.official_name ||
+    p.alt_name ||
+    p.ref ||
+    ''
+  );
+}
+
+function osmTrailDisplayName(p = {}) {
+  const name = osmTrailName(p);
+  if (name) return name;
+
+  const type = p.highway || p.route || 'path';
+  return `Unnamed OSM ${type}`;
+}
+
+function osmTrailId(p = {}) {
+  if (p.__osmType && p.__osmId) return `${p.__osmType}/${p.__osmId}`;
+  if (p.id) return String(p.id);
+  return 'OSM trail';
+}
+
+function osmTrailFeatureKey(feature) {
+  const p = feature?.properties || {};
+  if (p.__osmType && p.__osmId) return `${p.__osmType}:${p.__osmId}`;
+  return JSON.stringify(feature?.geometry?.coordinates || []);
+}
+
+function osmTrailFeatureBounds(feature) {
+  const coords = feature?.geometry?.coordinates;
+  if (!Array.isArray(coords) || coords.length === 0) return null;
+
+  let south = Infinity;
+  let west = Infinity;
+  let north = -Infinity;
+  let east = -Infinity;
+
+  coords.forEach(c => {
+    if (!Array.isArray(c) || c.length < 2) return;
+
+    const lng = Number(c[0]);
+    const lat = Number(c[1]);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    south = Math.min(south, lat);
+    west = Math.min(west, lng);
+    north = Math.max(north, lat);
+    east = Math.max(east, lng);
+  });
+
+  if (![south, west, north, east].every(Number.isFinite)) return null;
+
+  return { south, west, north, east };
+}
+
+function storedBoundsToLeafletBounds(b) {
+  if (!b) return null;
+
+  const south = Number(b.south);
+  const west = Number(b.west);
+  const north = Number(b.north);
+  const east = Number(b.east);
+
+  if (![south, west, north, east].every(Number.isFinite)) return null;
+  return L.latLngBounds([south, west], [north, east]);
+}
+
+function featureIntersectsBounds(feature, bounds) {
+  const fb = osmTrailFeatureBounds(feature);
+  const fbLeaflet = storedBoundsToLeafletBounds(fb);
+
+  if (!fbLeaflet || !bounds) return false;
+  return fbLeaflet.intersects(bounds);
+}
+
+function lineStringLengthKm(coords = []) {
+  let meters = 0;
+
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1];
+    const b = coords[i];
+
+    if (!Array.isArray(a) || !Array.isArray(b)) continue;
+
+    const aLL = L.latLng(Number(a[1]), Number(a[0]));
+    const bLL = L.latLng(Number(b[1]), Number(b[0]));
+
+    if (
+      Number.isFinite(aLL.lat) &&
+      Number.isFinite(aLL.lng) &&
+      Number.isFinite(bLL.lat) &&
+      Number.isFinite(bLL.lng)
+    ) {
+      meters += aLL.distanceTo(bLL);
+    }
+  }
+
+  return meters / 1000;
+}
+
+function trailOSMPopupContent(p = {}, feature = null) {
   const val = (v) => (v == null || v === '' ? '—' : String(v));
 
-  const name =
-    p.name ||
-    p.NAME ||
-    p.trail_name ||
-    p.TRAIL_NAME ||
-    'Trail';
+  const name = osmTrailDisplayName(p);
+  const isUnnamed = !osmTrailName(p);
+  const lengthKm = lineStringLengthKm(feature?.geometry?.coordinates || []);
 
-  const surface = p.surface || p.SURFACE || null;
-  const access  = p.access || p.ACCESS || null;
-  const bicycle = p.bicycle || p.BICYCLE || null;
-  const foot    = p.foot || p.FOOT || null;
-  const horse   = p.horse || p.HORSE || null;
-  const highway = p.highway || p.HIGHWAY || null;
+  const surface = p.surface || null;
+  const access  = p.access || null;
+  const bicycle = p.bicycle || null;
+  const foot    = p.foot || null;
+  const horse   = p.horse || null;
 
   let html = `
     <div style="min-width:240px">
-      <div style="font-weight:700;margin-bottom:6px">${val(name)}</div>
+      <div style="font-weight:700;margin-bottom:6px">${esc(name)}</div>
   `;
 
-  if (highway) html += `<div><b>Type:</b> ${val(highway)}</div>`;
-  if (surface) html += `<div><b>Surface:</b> ${val(surface)}</div>`;
-  if (access)  html += `<div><b>Access:</b> ${val(access)}</div>`;
-  if (foot)    html += `<div><b>Foot:</b> ${val(foot)}</div>`;
-  if (bicycle) html += `<div><b>Bicycle:</b> ${val(bicycle)}</div>`;
-  if (horse)   html += `<div><b>Horse:</b> ${val(horse)}</div>`;
+  if (isUnnamed) {
+    html += `<div style="font-size:12px;opacity:.75;margin-bottom:6px">${esc(osmTrailId(p))}</div>`;
+  }
+
+  html += `<div><b>Segment length:</b> ${Number.isFinite(lengthKm) ? `${lengthKm.toFixed(2)} km` : '—'}</div>`;
+
+  if (surface) html += `<div><b>Surface:</b> ${esc(val(surface))}</div>`;
+  if (access)  html += `<div><b>Access:</b> ${esc(val(access))}</div>`;
+  if (foot)    html += `<div><b>Foot:</b> ${esc(val(foot))}</div>`;
+  if (bicycle) html += `<div><b>Bicycle:</b> ${esc(val(bicycle))}</div>`;
+  if (horse)   html += `<div><b>Horse:</b> ${esc(val(horse))}</div>`;
 
   html += `</div>`;
   return html;
 }
 
+function osmTrailStyle(feature) {
+  const p = feature?.properties || {};
+  const named = !!osmTrailName(p);
+
+  return {
+    color: named ? '#8b5a2b' : '#b59a7a',
+    weight: named ? 3 : 2,
+    opacity: named ? 0.9 : 0.65
+  };
+}
+
 const trailsOSMLayer = L.geoJSON(null, {
-  style: {
-    color: '#8b5a2b',
-    weight: 2,
-    opacity: 0.75
-  },
-  interactive: false
+  style: osmTrailStyle,
+  onEachFeature: (feat, layer) => {
+    layer.bindPopup(trailOSMPopupContent(feat.properties || {}, feat), { maxWidth: 340 });
+
+    layer.on('click', (e) => {
+      if (e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
+      layer.openPopup(e.latlng);
+    });
+  }
 });
 
-
-let trailsOSMLoaded = false;
-let trailsOSMLoading = null;
-
-async function ensureTrailsOSMLoaded() {
-  if (trailsOSMLoaded) return;
-  if (trailsOSMLoading) return trailsOSMLoading;
-
-  trailsOSMLoading = (async () => {
-    const data = await fetchFirstJSON([
-      './data/OSM_paths.geojson',
-      '/data/OSM_paths.geojson'
-    ]);
-    trailsOSMLayer.addData(data);
-    trailsOSMLoaded = true;
-  })();
-
+function loadOsmTrailFeaturesFromStorage() {
   try {
-    await trailsOSMLoading;
-  } finally {
-    trailsOSMLoading = null;
+    const raw = localStorage.getItem(OSM_TRAILS_CACHE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(arr)
+      ? arr.filter(f =>
+          f?.type === 'Feature' &&
+          f?.geometry?.type === 'LineString' &&
+          Array.isArray(f.geometry.coordinates) &&
+          f.geometry.coordinates.length >= 2
+        )
+      : [];
+  } catch {
+    return [];
   }
 }
 
-showTrailsOSM?.addEventListener('change', async () => {
-  if (showTrailsOSM.checked) {
-    try {
-      await ensureTrailsOSMLoaded();
-      trailsOSMLayer.addTo(map);
-    } catch (err) {
-      console.warn('Trails not loaded (OSM_paths.geojson).', err.message);
-      showTrailsOSM.checked = false;
+function saveOsmTrailFeaturesToStorage(features = osmTrailFeatures) {
+  try {
+    localStorage.setItem(OSM_TRAILS_CACHE_KEY, JSON.stringify(features));
+  } catch (err) {
+    console.warn('Could not save OSM trail cache:', err);
+    setOsmTrailsStatus('OSM trails loaded, but browser storage is full or unavailable.');
+  }
+}
+
+function loadOsmTrailAreas() {
+  try {
+    const raw = localStorage.getItem(OSM_TRAILS_AREAS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOsmTrailAreas(areas) {
+  try {
+    localStorage.setItem(OSM_TRAILS_AREAS_KEY, JSON.stringify(areas));
+  } catch {}
+}
+
+function renderOsmTrailsLayer() {
+  trailsOSMLayer.clearLayers();
+  trailsOSMLayer.addData({
+    type: 'FeatureCollection',
+    features: osmTrailFeatures
+  });
+}
+
+function addOrRefreshOsmTrailAreaRecord(bounds, featureCount) {
+  const areas = loadOsmTrailAreas();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+
+  const newArea = {
+    id: `osm-trails-area-${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    featureCount,
+    bounds: {
+      south: sw.lat,
+      west: sw.lng,
+      north: ne.lat,
+      east: ne.lng
     }
+  };
+
+  const newBounds = storedBoundsToLeafletBounds(newArea.bounds);
+
+  const kept = areas.filter(area => {
+    const oldBounds = storedBoundsToLeafletBounds(area.bounds);
+    return !(oldBounds && newBounds && oldBounds.intersects(newBounds));
+  });
+
+  kept.push(newArea);
+  saveOsmTrailAreas(kept);
+}
+
+function dedupeOsmTrailFeatures(features) {
+  const seen = new Set();
+  const out = [];
+
+  features.forEach(feature => {
+    const key = osmTrailFeatureKey(feature);
+    if (seen.has(key)) return;
+
+    seen.add(key);
+    out.push(feature);
+  });
+
+  return out;
+}
+
+function osmTrailCacheSummary() {
+  const total = osmTrailFeatures.length;
+  const named = osmTrailFeatures.filter(f => !!osmTrailName(f.properties || {})).length;
+  const unnamed = Math.max(0, total - named);
+
+  return { total, named, unnamed };
+}
+
+function updateOsmTrailStatusIdle() {
+  const { total, named, unnamed } = osmTrailCacheSummary();
+
+  if (total > 0) {
+    setOsmTrailsStatus(`${total} cached OSM trail segment(s): ${named} named, ${unnamed} unnamed.`);
+  } else {
+    setOsmTrailsStatus('No cached OSM trails yet. Zoom to z13+ and load the visible area.');
+  }
+}
+
+function updateOsmLoadButtonState() {
+  if (!loadOsmTrailsBtn) return;
+
+  const z = map.getZoom();
+  const canLoad = z >= OSM_TRAILS_MIN_LOAD_ZOOM && !osmTrailsLoading;
+
+  loadOsmTrailsBtn.disabled = !canLoad;
+
+  if (z < OSM_TRAILS_MIN_LOAD_ZOOM) {
+    loadOsmTrailsBtn.title = `Zoom in to z${OSM_TRAILS_MIN_LOAD_ZOOM}+ to load OSM trails. Current zoom: z${z}.`;
+  } else {
+    loadOsmTrailsBtn.title = 'Load or refresh OSM trails for the visible map area.';
+  }
+}
+
+function buildOverpassTrailQuery(bounds) {
+  const s = bounds.getSouth();
+  const w = bounds.getWest();
+  const n = bounds.getNorth();
+  const e = bounds.getEast();
+  const bbox = `${s},${w},${n},${e}`;
+
+  return `
+[out:json][timeout:25];
+(
+  way["highway"~"^(path|footway|track|bridleway|cycleway)$"](${bbox});
+  way["route"~"^(hiking|foot|bicycle|mtb|ski)$"](${bbox});
+  way["trail_visibility"](${bbox});
+);
+out tags geom;
+`;
+}
+
+async function fetchOsmTrailsFromOverpass(bounds) {
+  const body = new URLSearchParams({
+    data: buildOverpassTrailQuery(bounds)
+  });
+
+  const res = await fetch(OSM_OVERPASS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'Accept': 'application/json'
+    },
+    body
+  });
+
+  if (!res.ok) {
+    throw new Error(`Overpass HTTP ${res.status}`);
+  }
+
+  const json = await res.json();
+  const elements = Array.isArray(json?.elements) ? json.elements : [];
+
+  return elements
+    .filter(el =>
+      el.type === 'way' &&
+      Array.isArray(el.geometry) &&
+      el.geometry.length >= 2
+    )
+    .map(el => {
+      const tags = el.tags || {};
+
+      return {
+        type: 'Feature',
+        properties: {
+          ...tags,
+          __osmType: el.type,
+          __osmId: el.id
+        },
+        geometry: {
+          type: 'LineString',
+          coordinates: el.geometry
+            .map(pt => [Number(pt.lon), Number(pt.lat)])
+            .filter(c => Number.isFinite(c[0]) && Number.isFinite(c[1]))
+        }
+      };
+    })
+    .filter(f => f.geometry.coordinates.length >= 2);
+}
+
+async function loadOsmTrailsForVisibleArea() {
+  const z = map.getZoom();
+
+  if (z < OSM_TRAILS_MIN_LOAD_ZOOM) {
+    setOsmTrailsStatus(`Zoom in to z${OSM_TRAILS_MIN_LOAD_ZOOM}+ to load OSM trails. Current zoom: z${z}.`);
+    updateOsmLoadButtonState();
+    return;
+  }
+
+  if (osmTrailsLoading) return;
+
+  const bounds = map.getBounds();
+
+  osmTrailsLoading = true;
+  updateOsmLoadButtonState();
+
+  if (loadOsmTrailsBtn) loadOsmTrailsBtn.textContent = 'Loading OSM trails…';
+  setOsmTrailsStatus('Querying Overpass for visible map area…');
+
+  try {
+    const fresh = await fetchOsmTrailsFromOverpass(bounds);
+
+    // Refresh overlapping cached data automatically, then add fresh data.
+    const kept = osmTrailFeatures.filter(feature => !featureIntersectsBounds(feature, bounds));
+    osmTrailFeatures = dedupeOsmTrailFeatures([...kept, ...fresh]);
+
+    saveOsmTrailFeaturesToStorage(osmTrailFeatures);
+    addOrRefreshOsmTrailAreaRecord(bounds, fresh.length);
+    renderOsmTrailsLayer();
+
+    if (showTrailsOSM?.checked && !map.hasLayer(trailsOSMLayer)) {
+      trailsOSMLayer.addTo(map);
+    }
+
+    const { total } = osmTrailCacheSummary();
+    setOsmTrailsStatus(`Loaded ${fresh.length} OSM trail segment(s). Cache now has ${total}.`);
+
+    try { updateLayerHealth?.(); } catch {}
+  } catch (err) {
+    console.warn('OSM Overpass trail load failed:', err);
+    setOsmTrailsStatus(`OSM trail load failed: ${err?.message || 'network error'}.`);
+  } finally {
+    osmTrailsLoading = false;
+    if (loadOsmTrailsBtn) loadOsmTrailsBtn.textContent = 'Load / Refresh OSM trails';
+    updateOsmLoadButtonState();
+  }
+}
+
+function ensureTrailsOSMLoaded() {
+  // Compatibility shim for existing Layer Health / Load all calls.
+  // OSM trails are no longer loaded from ./data/OSM_paths.geojson.
+  osmTrailFeatures = loadOsmTrailFeaturesFromStorage();
+  renderOsmTrailsLayer();
+  updateOsmTrailStatusIdle();
+  return Promise.resolve();
+}
+
+// Initial OSM cache load.
+osmTrailFeatures = loadOsmTrailFeaturesFromStorage();
+renderOsmTrailsLayer();
+updateOsmTrailStatusIdle();
+updateOsmLoadButtonState();
+
+showTrailsOSM?.addEventListener('change', async () => {
+  await ensureTrailsOSMLoaded();
+
+  if (showTrailsOSM.checked) {
+    trailsOSMLayer.addTo(map);
   } else {
     map.removeLayer(trailsOSMLayer);
   }
 });
 
+loadOsmTrailsBtn?.addEventListener('click', loadOsmTrailsForVisibleArea);
+
+map.on('zoomend', () => {
+  updateOsmLoadButtonState();
+});
 
   // ---------------------------------------------------------------------------
   // Imagery (toggle + opacity slider)

@@ -145,8 +145,24 @@
           <label><input type="checkbox" id="showContours"> Elevation Contours</label>
           <label><input type="checkbox" id="showStocked"> Stocked Lakes</label>
           <label><input type="checkbox" id="showAccess"> Water Access Points</label>
-          <label><input type="checkbox" id="showTrails"> Trails (OTN)</label>
-          <label><input type="checkbox" id="showTrailsOSM"> Trails (OSM)</label>
+<label><input type="checkbox" id="showTrails"> Trails (OTN)</label>
+
+<div class="osm-trails-control">
+  <label class="osm-trails-toggle">
+    <input type="checkbox" id="showTrailsOSM">
+    Trails (OSM)
+  </label>
+
+  <div class="osm-trails-actions">
+    <button class="btn" id="loadOsmTrailsBtn" type="button">
+      Load / Refresh OSM trails
+    </button>
+    <span id="osmTrailsStatus" class="muted">
+      Uses visible map area. Zoom to z13+ to load.
+    </span>
+  </div>
+</div>
+        
         </div>
       </section>
 
