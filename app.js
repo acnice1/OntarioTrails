@@ -978,6 +978,7 @@ merged.sort((a, b) => {
   const toggle   = document.getElementById('controlToggle');
   const closeBtn = document.getElementById('closePanelBtn');
   const utilityToggleBtn = document.getElementById('utilityToggleBtn');
+  const searchToggleBtn = document.getElementById('searchToggleBtn');
 
   const showBaseCk    = document.getElementById('showBase');
   const showTrails    = document.getElementById('showTrails'); // OTN trails (blue)
@@ -1033,8 +1034,7 @@ const utilityTabs = document.getElementById('utilityTabs');
 const MAIN_TAB_IDS = [
   'tab-map',
   'tab-pins',
-  'tab-track',
-  'tab-search'
+  'tab-track'
 ];
 
 const UTILITY_TAB_IDS = [
@@ -1069,14 +1069,20 @@ function setTabMode(mode = 'main') {
   if (!panel) return;
 
   const utilityMode = mode === 'utility';
+  const searchMode = mode === 'search';
+  const mainMode = mode === 'main';
 
   panel.classList.toggle('utility-tabs-mode', utilityMode);
-  panel.classList.toggle('main-tabs-mode', !utilityMode);
+  panel.classList.toggle('search-tabs-mode', searchMode);
+  panel.classList.toggle('main-tabs-mode', mainMode);
 
   // Hard-force tab row visibility. This avoids mobile/PWA CSS weirdness.
   if (utilityMode) {
     forceHide(mainTabs);
     forceShow(utilityTabs, 'flex');
+  } else if (searchMode) {
+    forceHide(mainTabs);
+    forceHide(utilityTabs);
   } else {
     forceShow(mainTabs, 'flex');
     forceHide(utilityTabs);
@@ -1084,6 +1090,9 @@ function setTabMode(mode = 'main') {
 
   utilityToggleBtn?.setAttribute('aria-expanded', utilityMode ? 'true' : 'false');
   utilityToggleBtn?.classList.toggle('active', utilityMode);
+
+  searchToggleBtn?.setAttribute('aria-expanded', searchMode ? 'true' : 'false');
+  searchToggleBtn?.classList.toggle('active', searchMode);
 }
 
 function activateTab(id) {
@@ -1091,6 +1100,8 @@ function activateTab(id) {
   if (!target) return;
 
   const utilityTab = isUtilityTabId(id);
+  const searchTab = id === 'tab-search';
+
   setTabMode(utilityTab ? 'utility' : 'main');
 
   tabButtons.forEach(btn => {
@@ -1137,11 +1148,29 @@ utilityToggleBtn?.addEventListener('click', () => {
   }
 });
 
+searchToggleBtn?.addEventListener('click', () => {
+  const currentlySearch = panel?.classList.contains('search-tabs-mode');
+
+  if (currentlySearch) {
+    activateTab('tab-map');
+  } else {
+    activateTab('tab-search');
+
+    // Put the cursor straight into the search box.
+    setTimeout(() => {
+      try { searchInput?.focus?.(); } catch {}
+    }, 80);
+  }
+});
+
 (function restoreLastTab() {
   const saved = localStorage.getItem('ontarioTrails.lastTab') || 'tab-map';
 
-  // Safer default: always start in the main controls unless the user explicitly taps settings.
-  const initialTab = UTILITY_TAB_IDS.includes(saved) ? 'tab-map' : saved;
+  // Safer default: always start in the main controls unless the user explicitly taps settings/search.
+  const initialTab =
+    UTILITY_TAB_IDS.includes(saved) || saved === 'tab-search'
+      ? 'tab-map'
+      : saved;
 
   activateTab(initialTab);
 })();

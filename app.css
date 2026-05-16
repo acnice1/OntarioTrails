@@ -70,6 +70,7 @@ body.panel-open { overflow: hidden; touch-action: none; }
 }
 .icon-btn:hover { background:#eef4ff; }
 .icon-btn:active{ transform: scale(.98); }
+.icon-btn svg{ display:block; }
 
 /* Sections */
 .panel-section{ padding:10px 12px; border-bottom:1px dashed #e8edf3; }
@@ -484,7 +485,8 @@ input[type="range"]::-moz-range-thumb{
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
-#utilityToggleBtn.active {
+#utilityToggleBtn.active,
+#searchToggleBtn.active {
   background: #e8f1ff;
   border-color: #1472ff;
   color: #1472ff;
@@ -592,6 +594,11 @@ input[type="range"]::-moz-range-thumb{
 }
 
 .control-panel.utility-tabs-mode #mainTabs {
+  display: none !important;
+}
+
+.control-panel.search-tabs-mode #mainTabs,
+.control-panel.search-tabs-mode #utilityTabs {
   display: none !important;
 }
 
