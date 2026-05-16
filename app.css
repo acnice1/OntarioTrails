@@ -720,3 +720,34 @@ input[type="range"]::-moz-range-thumb{
 [hidden] {
   display: none !important;
 }
+.pin-popup-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.pin-popup-actions button {
+  width: 100%;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.pin-share-inline {
+  border: 1px solid #1472ff;
+  color: #1472ff;
+}
+
+.pin-share-inline:hover {
+  background: #eef4ff;
+}
+
+.pin-del-inline {
+  border: 1px solid #c33;
+  color: #c33;
+}
+
+.pin-del-inline:hover {
+  background: #fff1f2;
+}

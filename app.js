@@ -2209,6 +2209,37 @@ function buildOfflineBasemapTileUrlList(bounds, minZ, maxZ) {
   return urls;
 }
 
+function applySharedLocationFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+
+  const lat = parseFloat(params.get('lat'));
+  const lng = parseFloat(params.get('lng'));
+  const z = parseInt(params.get('z') || '15', 10);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  map.setView([lat, lng], Number.isFinite(z) ? z : 15);
+}
+function applySharedPinFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get('pin') !== '1') return;
+
+  const lat = parseFloat(params.get('lat'));
+  const lng = parseFloat(params.get('lng'));
+  const z = parseInt(params.get('z') || '15', 10);
+  const label = params.get('label') || 'Shared pin';
+  const type = params.get('type') || 'Other';
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  map.setView([lat, lng], Number.isFinite(z) ? z : 15);
+
+  const marker = L.marker([lat, lng], { title: label });
+  marker.bindPopup(`<b>${esc(label)}</b><br>${esc(type)}`).openPopup();
+  marker.addTo(map);
+}
+
 
 async function cacheOfflineVectorData() {
   if (!('caches' in window)) return {
@@ -3207,6 +3238,49 @@ function formatCoords(lat, lng) {
   const f = (n) => (Math.abs(n).toFixed(5)) + (n >= 0 ? (n === lat ? '°N' : '°E') : (n === lat ? '°S' : '°W'));
   return `${f(lat)}, ${f(lng)}`;
 }
+function buildPinShareUrl(p) {
+  const url = new URL(window.location.href);
+
+  // Keep the current app path, but replace query params with a clean shared pin link.
+  url.search = '';
+
+  url.searchParams.set('pin', '1');
+  url.searchParams.set('lat', Number(p.lat).toFixed(6));
+  url.searchParams.set('lng', Number(p.lng).toFixed(6));
+  url.searchParams.set('z', String(Math.max(map.getZoom(), 15)));
+  url.searchParams.set('type', p.type || 'Other');
+  url.searchParams.set('label', p.label || p.type || 'Shared pin');
+
+  return url.toString();
+}
+
+async function sharePin(p) {
+  const shareUrl = buildPinShareUrl(p);
+  const title = p.label || p.type || 'Shared pin';
+
+  // Best mobile experience: native share sheet where supported.
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title,
+        text: `${title} — Ontario Trails pin`,
+        url: shareUrl
+      });
+      return { ok: true, method: 'share' };
+    } catch (err) {
+      // User cancelled share sheet; don't treat as a hard failure.
+      if (err?.name === 'AbortError') return { ok: false, method: 'cancelled' };
+    }
+  }
+
+  // Desktop / fallback: copy link.
+  const copied = await copyTextWithFallback(shareUrl);
+  return {
+    ok: copied,
+    method: copied ? 'clipboard' : 'manual',
+    url: shareUrl
+  };
+}
 
 function renderPinList() {
   const list = ensurePinListContainer();
@@ -3292,30 +3366,69 @@ pins.forEach((p, idx) => {
 
     // Optional: single-tap delete from marker popup (phone-friendly)
     // Left-click opens popup with a delete button; remove if you don't want this.
-    m.on('click', () => {
-      const label = (p.label || p.type || 'Pin').toString();
-      m.bindPopup(
-        `<div style="min-width:180px">
-           <div style="font-weight:600;margin-bottom:6px">${esc(label)}</div>
-           <div style="font-size:.85rem;opacity:.7;margin-bottom:.5rem">${formatCoords(p.lat, p.lng)}</div>
-           <button class="pin-del-inline" style="padding:6px 10px;border:1px solid #c33;border-radius:6px;background:#fff;cursor:pointer">🗑️ Delete pin</button>
-         </div>`,
-        { closeButton: true }
-      ).openPopup();
-    });
-    m.on('popupopen', (ev) => {
-      ev?.popup?._contentNode?.querySelector?.('.pin-del-inline')?.addEventListener('click', () => {
-        const i = pinMarkers.indexOf(m);
-        if (i >= 0) {
-          pins.splice(i, 1);
-          savePinsToStorage?.();
-          refreshPins();
-          renderPinList();
-          try { map.closePopup(); } catch {}
-        }
-      });
-    });
+m.on('click', () => {
+  const label = (p.label || p.type || 'Pin').toString();
+
+  m.bindPopup(
+    `<div class="pin-popup" style="min-width:200px">
+       <div style="font-weight:700;margin-bottom:4px">${esc(label)}</div>
+       <div style="font-size:.85rem;opacity:.75;margin-bottom:.35rem">${esc(p.type || 'Other')}</div>
+       <div style="font-size:.85rem;opacity:.7;margin-bottom:.6rem">${formatCoords(p.lat, p.lng)}</div>
+
+       <div class="pin-popup-actions">
+         <button type="button" class="pin-share-inline">🔗 Share Pin</button>
+         <button type="button" class="pin-del-inline">🗑️ Delete pin</button>
+       </div>
+
+       <div class="pin-share-status" style="display:none;margin-top:6px;font-size:12px;line-height:1.3"></div>
+     </div>`,
+    { closeButton: true }
+  ).openPopup();
+});
+m.on('popupopen', (ev) => {
+  const node = ev?.popup?._contentNode;
+  if (!node) return;
+
+  const shareBtn = node.querySelector('.pin-share-inline');
+  const deleteBtn = node.querySelector('.pin-del-inline');
+  const statusEl = node.querySelector('.pin-share-status');
+
+  shareBtn?.addEventListener('click', async () => {
+    const i = pinMarkers.indexOf(m);
+    if (i < 0 || !pins[i]) return;
+
+    const result = await sharePin(pins[i]);
+
+    if (!statusEl) return;
+
+    statusEl.style.display = 'block';
+
+    if (result.method === 'share') {
+      statusEl.textContent = 'Share sheet opened.';
+    } else if (result.method === 'clipboard') {
+      statusEl.textContent = 'Share link copied.';
+    } else if (result.method === 'cancelled') {
+      statusEl.textContent = 'Share cancelled.';
+    } else {
+      statusEl.innerHTML = `Copy this link:<br><span style="word-break:break-all">${esc(result.url || '')}</span>`;
+    }
   });
+
+  deleteBtn?.addEventListener('click', () => {
+    const i = pinMarkers.indexOf(m);
+
+    if (i >= 0) {
+      pins.splice(i, 1);
+      savePinsToStorage?.();
+      refreshPins();
+      renderPinList();
+
+      try { map.closePopup(); } catch {}
+    }
+  });
+});
+
+});
 
    if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
   renderPinList();
@@ -5583,5 +5696,7 @@ map.on('zoomend', () => {
   }
 });
 
+applySharedLocationFromUrl();
+applySharedPinFromUrl();
 restoreUtilitySettings();
 updateEmergencyInfo();
