@@ -716,3 +716,7 @@ input[type="range"]::-moz-range-thumb{
 .route-del:hover {
   background: #fff1f2;
 }
+/* Force hidden controls to stay hidden, even if another class sets display:flex */
+[hidden] {
+  display: none !important;
+}

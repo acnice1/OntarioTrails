@@ -987,6 +987,8 @@ merged.sort((a, b) => {
   const showTrailsOSM = document.getElementById('showTrailsOSM'); // OSM trails (orange)
   const showPinsCk    = document.getElementById('showPins');
   const showServerRoutesCk = document.getElementById('showServerRoutes');
+  if (showServerRoutesCk) showServerRoutesCk.checked = false;
+  
   const showCrosshair = document.getElementById('showCrosshair');
   const showStocked   = document.getElementById('showStocked');
   const showAccess    = document.getElementById('showAccess');
@@ -4843,8 +4845,12 @@ if (showCLUPA) restoreCheckbox(showCLUPA, (on) => setClupaAll(on));
   updateContourVisibility(); // initial
   toggleAccess();           // initial
   toggleStocked();          // initial
-  initServerRoutes();       // initial (also sets pins visibility based on checkbox)
-  showPinsCk?.addEventListener('change', () => {
+
+  // Stored/server routes intentionally disabled for privacy.
+// Do not auto-load ./data/routes/routes.json because it may reveal private locations.
+// initServerRoutes();
+
+showPinsCk?.addEventListener('change', () => {
     showPinsCk.checked ? pinsLayer.addTo(map) : map.removeLayer(pinsLayer);
     
   });
