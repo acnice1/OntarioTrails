@@ -671,15 +671,15 @@ const constrained = {
 
         div.addEventListener('click', () => {
           openOsmTrailSearchResult(r);
+          loadOsmTrailsAfterSearchMoveIfEnabled();
         });
-
         searchResults.appendChild(div);
         return;
       }
 
       div.textContent = r.name || r.html || r.properties?.display_name || 'Result';
 
-      div.addEventListener('click', () => {
+           div.addEventListener('click', () => {
         if (r.bbox) {
           map.fitBounds(r.bbox, {
             maxZoom: SEARCH_MAX_ZOOM_BBOX,
@@ -697,6 +697,8 @@ const constrained = {
             .bindPopup(r.name || r.properties?.display_name || 'Location')
             .openPopup();
         }
+
+        loadOsmTrailsAfterSearchMoveIfEnabled();
       });
 
       searchResults.appendChild(div);
@@ -991,6 +993,8 @@ merged.sort((a, b) => {
   const showContours  = document.getElementById('showContours');
   const showImagery   = document.getElementById('showImagery');
 
+  const settingAutoLoadOsmAfterSearch = document.getElementById('settingAutoLoadOsmAfterSearch');
+
   const crosshairEl   = document.getElementById('crosshair');
   const contourHintEl = document.getElementById('contourHint');
   const baseMapModeSelect = document.getElementById('baseMapMode');
@@ -1102,7 +1106,7 @@ function activateTab(id) {
   const utilityTab = isUtilityTabId(id);
   const searchTab = id === 'tab-search';
 
-  setTabMode(utilityTab ? 'utility' : 'main');
+  setTabMode(searchTab ? 'search' : utilityTab ? 'utility' : 'main');
 
   tabButtons.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === id);
@@ -1771,6 +1775,24 @@ loadOsmTrailsBtn?.addEventListener('click', loadOsmTrailsForVisibleArea);
 map.on('zoomend', () => {
   updateOsmLoadButtonState();
 });
+
+// Optional: load/refresh OSM trails after a search result moves the map.
+// Controlled by Settings > Auto-load OSM trails after search.
+function loadOsmTrailsAfterSearchMoveIfEnabled() {
+  if (!settingAutoLoadOsmAfterSearch?.checked) return;
+
+  // Give Leaflet a moment to complete fitBounds/setView and update zoom/bounds.
+  setTimeout(() => {
+    try {
+      if (typeof loadOsmTrailsForVisibleArea === 'function') {
+        loadOsmTrailsForVisibleArea();
+      }
+    } catch (err) {
+      console.warn('OSM trail auto-load after search failed:', err);
+    }
+  }, 350);
+}
+
 
   // ---------------------------------------------------------------------------
   // Imagery (toggle + opacity slider)
@@ -4359,6 +4381,7 @@ renderRouteList();
   restoreCheckbox(showCrosshair, () => updateCrosshair());
 
   restoreCheckbox(showOfflineAreasCk, () => renderOfflineAreas());
+  restoreCheckbox(settingAutoLoadOsmAfterSearch);
 
   restoreCheckbox(showImagery, (on) => { on ? imagery.addTo(map) : map.removeLayer(imagery); });
 

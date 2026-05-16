@@ -83,7 +83,7 @@
         Pins
       </button>
 
-      <button class="tab-btn" data-tab="tab-track">
+          <button class="tab-btn" data-tab="tab-track">
         <span class="ico" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/>
@@ -91,18 +91,8 @@
         </span>
         Track
       </button>
-      </div>
-      
-      <button class="tab-btn" data-tab="tab-search">
-        <span class="ico" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/>
-            <path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          </svg>
-        </span>
-      </button>
     </div>
-
+    
     <div id="utilityTabs" class="tabs utility-tabs" hidden>
       <button class="tab-btn utility-tab-btn" data-tab="tab-settings">
         <span class="ico" aria-hidden="true">⚙️</span>
@@ -393,6 +383,14 @@ div class="muted" style="font-size:12px;line-height:1.35;margin-top:4px;">
         </label>
         <div class="muted setting-help">
           Shows the map areas that have been downloaded for offline offline imagery.
+        </div>
+
+        <label class="setting-row">
+          <input type="checkbox" id="settingAutoLoadOsmAfterSearch">
+          Auto-load OSM trails after search
+        </label>
+        <div class="muted setting-help">
+          After selecting a search result, automatically loads or refreshes OSM trails for the visible map area.
         </div>
 
         <label class="setting-row">
