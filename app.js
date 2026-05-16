@@ -1395,6 +1395,8 @@ function trailOSMPopupContent(p = {}, feature = null) {
   const lengthKm = lineStringLengthKm(feature?.geometry?.coordinates || []);
 
   const surface = p.surface || null;
+  const difficulty = p.sac_scale || p.difficulty || null;
+
   const access  = p.access || null;
   const bicycle = p.bicycle || null;
   const foot    = p.foot || null;
@@ -1412,6 +1414,7 @@ function trailOSMPopupContent(p = {}, feature = null) {
   html += `<div><b>Segment length:</b> ${Number.isFinite(lengthKm) ? `${lengthKm.toFixed(2)} km` : '—'}</div>`;
 
   if (surface) html += `<div><b>Surface:</b> ${esc(val(surface))}</div>`;
+  if (difficulty) html += `<div><b>Difficulty:</b> ${esc(val(difficulty))}</div>`;
   if (access)  html += `<div><b>Access:</b> ${esc(val(access))}</div>`;
   if (foot)    html += `<div><b>Foot:</b> ${esc(val(foot))}</div>`;
   if (bicycle) html += `<div><b>Bicycle:</b> ${esc(val(bicycle))}</div>`;
