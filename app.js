@@ -1216,9 +1216,90 @@ const trailsStyle = {
   opacity: 0.8,
   interactive: false
 };
+// ---------------------------------------------------------------------------
+// Trail bookmark/save-as-route support
+// ---------------------------------------------------------------------------
+// Saves clicked trail geometry as a simplified plotted Route.
+// Keeps manual plotted routes unchanged.
 
-function trailPopupContent(p = {}) {
+const TRAIL_BOOKMARK_SIMPLIFY_TOLERANCE_M = 8;
+const TRAIL_BOOKMARK_MAX_POINTS = 500;
+
+const trailBookmarkFeatureStore = new Map();
+let trailBookmarkSeq = 0;
+
+function getTrailBookmarkFeatureKey(source, feature) {
+  if (!feature) return '';
+
+  if (feature.__trailBookmarkKey) return feature.__trailBookmarkKey;
+
+  const p = feature.properties || {};
+
+  let stablePart = '';
+
+  if (source === 'OSM' && p.__osmType && p.__osmId) {
+    stablePart = `${p.__osmType}:${p.__osmId}`;
+  } else if (source === 'OTN') {
+    stablePart =
+      feature.id ||
+      p.OBJECTID ||
+      p.FID ||
+      p.TRAIL_ID ||
+      p.TRAIL_NAME ||
+      '';
+  }
+
+  const key = `${source}:${stablePart || `feature-${++trailBookmarkSeq}`}:${Date.now()}`;
+
+  try {
+    Object.defineProperty(feature, '__trailBookmarkKey', {
+      value: key,
+      enumerable: false,
+      configurable: false
+    });
+  } catch {
+    feature.__trailBookmarkKey = key;
+  }
+
+  return key;
+}
+
+function registerTrailBookmarkFeature(source, feature) {
+  const key = getTrailBookmarkFeatureKey(source, feature);
+  if (!key) return '';
+
+  trailBookmarkFeatureStore.set(key, {
+    source,
+    feature
+  });
+
+  return key;
+}
+
+function trailBookmarkButtonHtml(source, feature, label = '💾 Save trail as Route') {
+  const key = registerTrailBookmarkFeature(source, feature);
+  if (!key) return '';
+
+  return `
+    <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e8edf3">
+      <button
+        type="button"
+        class="btn save-trail-route-btn"
+        data-trail-bookmark-key="${esc(key)}"
+        style="width:100%;text-align:center"
+      >
+        ${esc(label)}
+      </button>
+      <div class="muted" style="font-size:12px;margin-top:4px;line-height:1.3">
+        Saves a simplified copy to Routes.
+      </div>
+    </div>
+  `;
+}
+
+function trailPopupContent(p = {}, feature = null) {
   const val = (v) => (v == null || v === '' ? '—' : String(v));
+
   const lengthKm = Number.isFinite(+p.TRAIL_LENGTH_KM)
     ? `${(+p.TRAIL_LENGTH_KM).toFixed(1)} km`
     : '—';
@@ -1227,23 +1308,28 @@ function trailPopupContent(p = {}) {
     ? (() => {
         const raw = String(p.TRAIL_ASSOCIATION_WEBSITE).trim();
         const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${raw}</a>`;
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${esc(raw)}</a>`;
       })()
     : '—';
 
+  const saveButton = feature
+    ? trailBookmarkButtonHtml('OTN', feature, '💾 Save trail as Route')
+    : '';
+
   return `
     <div style="min-width:240px">
-      <div style="font-weight:700;margin-bottom:6px">${val(p.TRAIL_NAME)}</div>
-      <div><b>Use:</b> ${val(p.TRAIL_USE)}</div>
-      <div><b>Length:</b> ${lengthKm}</div>
-      <div><b>On-road:</b> ${val(p.ON_ROAD_FLG)}</div>
-      <div><b>Managed by:</b> ${val(p.TRAIL_ASSOCIATION)}</div>
+      <div style="font-weight:700;margin-bottom:6px">${esc(val(p.TRAIL_NAME))}</div>
+      <div><b>Use:</b> ${esc(val(p.TRAIL_USE))}</div>
+      <div><b>Length:</b> ${esc(lengthKm)}</div>
+      <div><b>On-road:</b> ${esc(val(p.ON_ROAD_FLG))}</div>
+      <div><b>Managed by:</b> ${esc(val(p.TRAIL_ASSOCIATION))}</div>
       <div><b>Website:</b> ${website}</div>
       ${
         p.DESCRIPTION
-          ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e8edf3">${val(p.DESCRIPTION)}</div>`
+          ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e8edf3">${esc(val(p.DESCRIPTION))}</div>`
           : ''
       }
+      ${saveButton}
     </div>`;
 }
 
@@ -1258,8 +1344,7 @@ const trailsHitLayer = L.geoJSON(null, {
     opacity: 0.01
   },
   onEachFeature: (feat, layer) => {
-    layer.bindPopup(trailPopupContent(feat.properties || {}), { maxWidth: 340 });
-
+  layer.bindPopup(trailPopupContent(feat.properties || {}, feat), { maxWidth: 340 });
     layer.on('click', (e) => {
       if (e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
       layer.openPopup(e.latlng);
@@ -1453,8 +1538,13 @@ function trailOSMPopupContent(p = {}, feature = null) {
   if (bicycle) html += `<div><b>Bicycle:</b> ${esc(val(bicycle))}</div>`;
   if (horse)   html += `<div><b>Horse:</b> ${esc(val(horse))}</div>`;
 
+  if (feature) {
+    html += trailBookmarkButtonHtml('OSM', feature, '💾 Save segment as Route');
+  }
+
   html += `</div>`;
   return html;
+
 }
 
 function osmTrailVisualStyle(feature) {
@@ -3707,11 +3797,25 @@ function renderPlottedRoutes() {
       opacity: 0.9
     }).addTo(plottedRoutesLayer);
 
+    const routeKind =
+      route.type === 'trail-bookmark'
+        ? `Saved trail route${route.source ? ` · ${esc(route.source)}` : ''}<br>`
+        : '';
+
+    const simplificationInfo =
+      route.type === 'trail-bookmark' && Number.isFinite(+route.originalPointCount)
+        ? `Simplified: ${route.savedPointCount || pts.length} from ${route.originalPointCount} point(s)<br>`
+        : '';
+
     line.bindPopup(
       `<b>${esc(route.name || `Route ${idx + 1}`)}</b><br>` +
+      routeKind +
       `${pts.length} point(s)<br>` +
+      simplificationInfo +
       `Length: ${formatRouteLengthKm(lengthKm)}`
     );
+    
+    
   });
 }
 
@@ -3745,6 +3849,272 @@ function renderRouteList() {
 
   routeList.innerHTML = `<div class="route-list-wrap">${rows}</div>`;
 }
+
+// ---------------------------------------------------------------------------
+// Save clicked trail geometry as a simplified plotted Route
+// ---------------------------------------------------------------------------
+
+function getTrailBookmarkDisplayName(source, feature) {
+  const p = feature?.properties || {};
+
+  if (source === 'OSM') {
+    if (typeof osmTrailDisplayName === 'function') {
+      return osmTrailDisplayName(p);
+    }
+
+    return (
+      p.name ||
+      p['name:en'] ||
+      p.official_name ||
+      p.alt_name ||
+      p.ref ||
+      'OSM trail'
+    );
+  }
+
+  return (
+    p.TRAIL_NAME ||
+    p.NAME ||
+    p.name ||
+    'Saved trail route'
+  );
+}
+
+function getTrailGeometrySegments(feature) {
+  const g = feature?.geometry;
+  if (!g) return [];
+
+  if (g.type === 'LineString' && Array.isArray(g.coordinates)) {
+    return [g.coordinates];
+  }
+
+  if (g.type === 'MultiLineString' && Array.isArray(g.coordinates)) {
+    return g.coordinates.filter(seg => Array.isArray(seg) && seg.length >= 2);
+  }
+
+  return [];
+}
+
+function coordsToRoutePoints(coords = []) {
+  return coords
+    .filter(c =>
+      Array.isArray(c) &&
+      c.length >= 2 &&
+      Number.isFinite(+c[0]) &&
+      Number.isFinite(+c[1])
+    )
+    .map(c => ({
+      lat: +c[1],
+      lng: +c[0]
+    }));
+}
+
+function approximateProjectMeters(point, originLatRad) {
+  const R = 6371000;
+  const latRad = point.lat * Math.PI / 180;
+  const lngRad = point.lng * Math.PI / 180;
+
+  return {
+    x: R * lngRad * Math.cos(originLatRad),
+    y: R * latRad
+  };
+}
+
+function pointToSegmentDistanceMeters(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+
+  if (dx === 0 && dy === 0) {
+    return Math.hypot(p.x - a.x, p.y - a.y);
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)
+    )
+  );
+
+  const projX = a.x + t * dx;
+  const projY = a.y + t * dy;
+
+  return Math.hypot(p.x - projX, p.y - projY);
+}
+
+function simplifyRoutePointsRdp(points = [], toleranceM = TRAIL_BOOKMARK_SIMPLIFY_TOLERANCE_M) {
+  if (!Array.isArray(points) || points.length <= 2) return points.slice();
+
+  const avgLat =
+    points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+
+  const originLatRad = avgLat * Math.PI / 180;
+
+  const projected = points.map(p => ({
+    original: p,
+    projected: approximateProjectMeters(p, originLatRad)
+  }));
+
+  const keep = new Array(points.length).fill(false);
+  keep[0] = true;
+  keep[points.length - 1] = true;
+
+  const stack = [[0, points.length - 1]];
+
+  while (stack.length) {
+    const [start, end] = stack.pop();
+
+    let maxDist = 0;
+    let index = -1;
+
+    const a = projected[start].projected;
+    const b = projected[end].projected;
+
+    for (let i = start + 1; i < end; i++) {
+      const d = pointToSegmentDistanceMeters(projected[i].projected, a, b);
+
+      if (d > maxDist) {
+        maxDist = d;
+        index = i;
+      }
+    }
+
+    if (maxDist > toleranceM && index !== -1) {
+      keep[index] = true;
+      stack.push([start, index], [index, end]);
+    }
+  }
+
+  return points.filter((_p, idx) => keep[idx]);
+}
+
+function simplifyTrailRoutePoints(points = []) {
+  let toleranceM = TRAIL_BOOKMARK_SIMPLIFY_TOLERANCE_M;
+  let simplified = simplifyRoutePointsRdp(points, toleranceM);
+
+  // If a trail is still huge, increase tolerance gradually.
+  // This protects localStorage and keeps rendering fast.
+  while (
+    simplified.length > TRAIL_BOOKMARK_MAX_POINTS &&
+    toleranceM < 50
+  ) {
+    toleranceM += 4;
+    simplified = simplifyRoutePointsRdp(points, toleranceM);
+  }
+
+  return {
+    points: simplified,
+    toleranceM
+  };
+}
+
+function chooseBestTrailSegment(feature) {
+  const segments = getTrailGeometrySegments(feature);
+
+  if (!segments.length) return null;
+
+  if (segments.length === 1) return segments[0];
+
+  // Current route model is a single ordered line.
+  // For MultiLineString trails, save the longest segment for now.
+  return segments
+    .slice()
+    .sort((a, b) => {
+      const akm =
+        typeof lineStringLengthKm === 'function'
+          ? lineStringLengthKm(a)
+          : coordsToRoutePoints(a).length;
+
+      const bkm =
+        typeof lineStringLengthKm === 'function'
+          ? lineStringLengthKm(b)
+          : coordsToRoutePoints(b).length;
+
+      return bkm - akm;
+    })[0];
+}
+
+function saveTrailFeatureAsRouteByKey(key) {
+  const stored = trailBookmarkFeatureStore.get(key);
+
+  if (!stored?.feature) {
+    alert('Could not find the clicked trail geometry.');
+    return null;
+  }
+
+  const { source, feature } = stored;
+  const bestSegment = chooseBestTrailSegment(feature);
+
+  if (!bestSegment || bestSegment.length < 2) {
+    alert('This trail does not have route geometry that can be saved.');
+    return null;
+  }
+
+  const rawPoints = coordsToRoutePoints(bestSegment);
+
+  if (rawPoints.length < 2) {
+    alert('This trail does not have enough valid points to save as a route.');
+    return null;
+  }
+
+  const simplified = simplifyTrailRoutePoints(rawPoints);
+  const savedPoints = simplified.points;
+
+  if (savedPoints.length < 2) {
+    alert('Simplified trail route is too short to save.');
+    return null;
+  }
+
+  const cleanName = getTrailBookmarkDisplayName(source, feature);
+  const sourceLabel = source === 'OSM' ? 'OSM' : 'OTN';
+
+  const route = {
+    id: `trail-route-${Date.now()}`,
+    name: cleanName,
+    createdAt: new Date().toISOString(),
+    type: 'trail-bookmark',
+    source: sourceLabel,
+    lengthKm: +routeDistanceKm(savedPoints).toFixed(2),
+    simplifyToleranceM: simplified.toleranceM,
+    originalPointCount: rawPoints.length,
+    savedPointCount: savedPoints.length,
+    points: savedPoints
+  };
+
+  plottedRoutes.push(route);
+  savePlottedRoutesToStorage();
+  renderPlottedRoutes();
+  renderRouteList();
+
+  return route;
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.save-trail-route-btn');
+  if (!btn) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  try {
+    L.DomEvent.stop(e);
+  } catch {}
+
+  const key = btn.getAttribute('data-trail-bookmark-key');
+  const route = saveTrailFeatureAsRouteByKey(key);
+
+  if (!route) return;
+
+  btn.disabled = true;
+  btn.textContent = `Saved to Routes · ${route.savedPointCount} point(s)`;
+
+  setTimeout(() => {
+    try {
+      renderRouteList();
+      renderPlottedRoutes();
+    } catch {}
+  }, 50);
+});
 
 function zoomToPlottedRoute(id) {
   const route = plottedRoutes.find(r => r.id === id);
