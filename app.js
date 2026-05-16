@@ -1014,13 +1014,16 @@ merged.sort((a, b) => {
     toggle.setAttribute('aria-expanded', 'true');
     document.body.classList.add('panel-open');
   }
-  function closePanel() {
-    if (!panel || !toggle) return;
-    panel.classList.remove('open');
-    panel.setAttribute('aria-hidden', 'true');
-    toggle.setAttribute('aria-expanded', 'false');
-    document.body.classList.remove('panel-open');
-  }
+function closePanel() {
+  if (!panel || !toggle) return;
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  toggle.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('panel-open');
+
+  // Optional battery saver: stop compass sensor when the controls panel closes.
+  try { disableCompass?.(); } catch {}
+}
 
   // Listeners (defined once)
   toggle?.addEventListener('click', () =>
@@ -5124,13 +5127,38 @@ async function enableCompass() {
     window.addEventListener('deviceorientation', handleDeviceOrientation, true);
     compassEnabled = true;
 
-    if (enableCompassBtn) enableCompassBtn.textContent = 'Compass enabled';
+    if (enableCompassBtn) enableCompassBtn.textContent = 'Disable compass';
     if (compassHeading) compassHeading.textContent = 'Move device to calibrate';
   } catch (err) {
     console.warn('Compass failed:', err);
     if (compassHeading) compassHeading.textContent = 'Compass unavailable';
   }
 }
+
+function disableCompass() {
+  if (!compassEnabled) return;
+
+  window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
+  compassEnabled = false;
+
+  if (enableCompassBtn) enableCompassBtn.textContent = 'Enable compass';
+  if (compassHeading) compassHeading.textContent = 'Heading unavailable';
+  if (compassDirection) compassDirection.textContent = '—';
+
+  if (compassNeedle) {
+    compassNeedle.style.transform = 'translate(-50%, -100%) rotate(0deg)';
+  }
+}
+
+async function toggleCompass() {
+  if (compassEnabled) {
+    disableCompass();
+  } else {
+    await enableCompass();
+  }
+}
+
+enableCompassBtn?.addEventListener('click', toggleCompass);
 
 enableCompassBtn?.addEventListener('click', enableCompass);
 
