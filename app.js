@@ -3941,89 +3941,163 @@ pins.forEach((p, idx) => {
 // First render (if pins already loaded at boot)
 refreshPins();
 
-  // -
-  // --------------------------------------------------------------------------
-  // Locate / Follow / Reset View
   // ---------------------------------------------------------------------------
-  const locateBtn    = document.getElementById('locateBtn');
-  const followBtn    = document.getElementById('followBtn');
-  const resetViewBtn = document.getElementById('resetViewBtn');
+// Locate / Follow / Reset View
+// ---------------------------------------------------------------------------
+const locateBtn    = document.getElementById('locateBtn');
+const followBtn    = document.getElementById('followBtn');
+const resetViewBtn = document.getElementById('resetViewBtn');
 
-  const LOCATE_ZOOM = 15; // how far to zoom on locate
+const LOCATE_ZOOM = 15;
 
-
-  let watching = false, watchId = null, follow = false, you = null;
+let watching = false;
+let watchId = null;
+let follow = false;
+let you = null;
 let lastGeoFix = null;
+let centerOnNextFix = false;
 
-  function ensureMarker() {
-    if (!you) you = L.circleMarker([0,0], { radius: 6, color: '#ff00a8' }).addTo(map);
-    return you;
+function ensureMarker() {
+  if (!you) {
+    you = L.circleMarker([0, 0], {
+      radius: 6,
+      color: '#ff00a8',
+      fillColor: '#ff00a8',
+      fillOpacity: 0.9
+    }).addTo(map);
   }
 
- function startLocate(centerOnFix = false) {
-  if (watching) return;
-  if (!('geolocation' in navigator)) { alert('Geolocation not supported'); return; }
+  return you;
+}
+
+function updateFollowButton() {
+  if (followBtn) {
+    followBtn.textContent = follow ? '▶️ Follow: On' : '▶️ Follow: Off';
+    followBtn.classList.toggle('active', follow);
+  }
+}
+
+function recenterOnCurrentLocation() {
+  if (you) {
+    map.setView(you.getLatLng(), Math.max(map.getZoom(), LOCATE_ZOOM));
+    return true;
+  }
+
+  if (lastGeoFix) {
+    map.setView([lastGeoFix.lat, lastGeoFix.lng], Math.max(map.getZoom(), LOCATE_ZOOM));
+    return true;
+  }
+
+  return false;
+}
+
+function setFollow(on) {
+  follow = !!on;
+  updateFollowButton();
+
+  if (follow) {
+    // Follow should start GPS if it is not already running.
+    if (!watching) {
+      startLocate(true);
+      return;
+    }
+
+    // If GPS is already running and we have a fix, move immediately.
+    if (!recenterOnCurrentLocation()) {
+      centerOnNextFix = true;
+    }
+  }
+}
+
+function startLocate(centerOnFix = false) {
+  if (!('geolocation' in navigator)) {
+    alert('Geolocation not supported');
+    return;
+  }
+
+  if (centerOnFix) {
+    centerOnNextFix = true;
+  }
+
+  // Already watching: just honour the recenter request.
+  if (watching) {
+    if (centerOnNextFix && recenterOnCurrentLocation()) {
+      centerOnNextFix = false;
+    }
+    return;
+  }
+
   watching = true;
 
-  let centerOnce = centerOnFix;  // <-- capture the intent for the first fix
+  if (locateBtn) {
+    locateBtn.textContent = '📍 Recenter';
+    locateBtn.disabled = false;
+  }
 
   watchId = navigator.geolocation.watchPosition(
     (pos) => {
-      const { latitude, longitude } = pos.coords;
-      ensureMarker().setLatLng([latitude, longitude]);
-lastGeoFix = {
-  lat: latitude,
-  lng: longitude,
-  accuracy: pos.coords.accuracy,
-  heading: pos.coords.heading,
-  speed: pos.coords.speed,
-  timestamp: pos.timestamp || Date.now()
-};
+      const { latitude, longitude, accuracy, heading, speed } = pos.coords;
 
-updateEmergencyInfo?.();
-      // Recenter if Follow is on OR this locate-click requested a one-time center
-      if (follow || centerOnce) {
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+      ensureMarker().setLatLng([latitude, longitude]);
+
+      lastGeoFix = {
+        lat: latitude,
+        lng: longitude,
+        accuracy,
+        heading,
+        speed,
+        timestamp: pos.timestamp || Date.now()
+      };
+
+      updateEmergencyInfo?.();
+
+      if (follow || centerOnNextFix) {
         map.setView([latitude, longitude], Math.max(map.getZoom(), LOCATE_ZOOM));
-        centerOnce = false; // only once per locate click
+        centerOnNextFix = false;
       }
 
-      // Track recorder hook stays as-is
+      // Track recorder hook.
       onGeoPosition(pos);
     },
-    (err) => console.warn('Geolocation error:', err),
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    (err) => {
+      console.warn('Geolocation error:', err);
+
+      if (err.code === err.PERMISSION_DENIED) {
+        watching = false;
+        watchId = null;
+        setFollow(false);
+
+        if (locateBtn) {
+          locateBtn.textContent = '📍 Locate';
+          locateBtn.disabled = false;
+        }
+      }
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 15000
+    }
   );
-  if (locateBtn) locateBtn.disabled = true;
 }
 
-
 locateBtn?.addEventListener('click', () => {
-  if (!watching) {
-    // Start GNSS and recenter on the first fix
-    startLocate(true);
-  } else {
-    // Already watching: if we have a current position marker, recenter now
-    if (you) {
-      map.setView(you.getLatLng(), Math.max(map.getZoom(), LOCATE_ZOOM));
-    } else {
-      // No marker yet? request a one-time center on next fix
-      startLocate(true);
-    }
-  }
+  // Locate means: start GPS if needed, then centre once.
+  startLocate(true);
 });
 
-  followBtn?.addEventListener('click', () => {
-    follow = !follow;
-    if (followBtn) followBtn.textContent = follow ? '▶️ Follow: On' : '▶️ Follow: Off';
-    if (follow && you) map.setView(you.getLatLng());
-  });
-  const HOME = { center: [45.4215, -75.6972], zoom: 11 };
-  resetViewBtn?.addEventListener('click', () => {
-    follow = false;
-    if (followBtn) followBtn.textContent = '▶️ Follow: Off';
-    map.setView(HOME.center, HOME.zoom);
-  });
+followBtn?.addEventListener('click', () => {
+  setFollow(!follow);
+});
 
+const HOME = { center: [45.4215, -75.6972], zoom: 11 };
+
+resetViewBtn?.addEventListener('click', () => {
+  setFollow(false);
+  map.setView(HOME.center, HOME.zoom);
+});
 
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
