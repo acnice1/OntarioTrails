@@ -1108,7 +1108,7 @@ function closePanel() {
   document.body.classList.remove('panel-open');
 
   // Optional battery saver: stop compass sensor when the controls panel closes.
-  try { disableCompass?.(); } catch {}
+  //try { disableCompass?.(); } catch {}
 }
 
   // Listeners (defined once)
