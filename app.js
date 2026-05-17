@@ -990,10 +990,12 @@ merged.sort((a, b) => {
   if (showServerRoutesCk) showServerRoutesCk.checked = false;
   
   const showCrosshair = document.getElementById('showCrosshair');
+
   const showStocked   = document.getElementById('showStocked');
-  const showAccess    = document.getElementById('showAccess');
-  const showContours  = document.getElementById('showContours');
-  const showImagery   = document.getElementById('showImagery');
+const showAccess    = document.getElementById('showAccess');
+const showContours  = document.getElementById('showContours');
+const showImagery   = document.getElementById('showImagery');
+const showOsmPoi    = document.getElementById('showOsmPoi');
 
   const settingAutoLoadOsmAfterSearch = document.getElementById('settingAutoLoadOsmAfterSearch');
 
@@ -1887,6 +1889,410 @@ function loadOsmTrailsAfterSearchMoveIfEnabled() {
     }
   }, 350);
 }
+
+// ---------------------------------------------------------------------------
+// OSM Points of Interest: viewpoints, tourism, waterfalls, peaks, etc.
+// ---------------------------------------------------------------------------
+// Uses Overpass for the current visible map area.
+// - Zoom-gated to avoid noisy/slow loads.
+// - Cached in localStorage.
+// - Displays point markers only, using node lat/lng or way/relation center.
+// - Focused on trail-relevant outdoor POIs.
+
+const OSM_POI_CACHE_KEY = 'ontarioTrails.osmPoi.features.v1';
+const OSM_POI_MIN_LOAD_ZOOM = 13;
+const OSM_POI_MAX_FEATURES = 600;
+
+let osmPoiFeatures = [];
+let osmPoiLoading = false;
+let osmPoiMoveTimer = null;
+
+const osmPoiLayer = L.geoJSON(null, {
+  pointToLayer: (feat, latlng) => {
+    return L.marker(latlng, {
+      icon: osmPoiIcon(feat.properties || {}),
+      title: osmPoiDisplayName(feat.properties || {})
+    });
+  },
+  onEachFeature: (feat, layer) => {
+    layer.bindPopup(osmPoiPopupContent(feat.properties || {}, feat), {
+      maxWidth: 320
+    });
+  }
+});
+
+function osmPoiIcon(p = {}) {
+  const emoji = osmPoiEmoji(p);
+
+  return L.divIcon({
+    className: 'osm-poi-icon',
+    html: `<div class="osm-poi-badge">${emoji}</div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -14]
+  });
+}
+
+function osmPoiEmoji(p = {}) {
+  if (p.tourism === 'viewpoint') return '🔭';
+  if (p.tourism === 'attraction') return '⭐';
+  if (p.tourism === 'information') return 'ℹ️';
+  if (p.tourism === 'picnic_site') return '🧺';
+  if (p.tourism === 'camp_site') return '⛺';
+  if (p.tourism === 'wilderness_hut') return '🛖';
+
+  if (p.waterway === 'waterfall') return '💦';
+
+  if (p.natural === 'peak') return '△';
+  if (p.natural === 'cave_entrance') return '🕳️';
+  if (p.natural === 'beach') return '🏖️';
+  if (p.natural === 'spring') return '💦';
+
+  if (p.amenity === 'shelter') return '🛖';
+  if (p.amenity === 'parking') return '🅿️';
+  if (p.amenity === 'toilets') return '🚻';
+  if (p.amenity === 'drinking_water') return '🚰';
+
+  return '📍';
+}
+
+function osmPoiTypeLabel(p = {}) {
+  if (p.tourism === 'viewpoint') return 'Viewpoint / lookout';
+  if (p.tourism === 'attraction') return 'Attraction';
+  if (p.tourism === 'information') {
+    if (p.information === 'guidepost') return 'Guidepost';
+    if (p.information === 'map') return 'Trail map / information map';
+    if (p.information === 'board') return 'Information board';
+    return 'Information';
+  }
+  if (p.tourism === 'picnic_site') return 'Picnic site';
+  if (p.tourism === 'camp_site') return 'Campsite';
+  if (p.tourism === 'wilderness_hut') return 'Wilderness hut';
+
+  if (p.waterway === 'waterfall') return 'Waterfall';
+
+  if (p.natural === 'peak') return 'Peak / summit';
+  if (p.natural === 'cave_entrance') return 'Cave entrance';
+  if (p.natural === 'beach') return 'Beach';
+  if (p.natural === 'spring') return 'Spring';
+
+  if (p.amenity === 'shelter') return 'Shelter';
+  if (p.amenity === 'parking') return 'Parking';
+  if (p.amenity === 'toilets') return 'Toilets';
+  if (p.amenity === 'drinking_water') return 'Drinking water';
+
+  return 'Point of interest';
+}
+
+function osmPoiDisplayName(p = {}) {
+  return (
+    p.name ||
+    p['name:en'] ||
+    p.official_name ||
+    p.alt_name ||
+    osmPoiTypeLabel(p)
+  );
+}
+
+function osmPoiFeatureKey(feature) {
+  const p = feature?.properties || {};
+  if (p.__osmType && p.__osmId) return `${p.__osmType}:${p.__osmId}`;
+  const c = feature?.geometry?.coordinates || [];
+  return `${osmPoiDisplayName(p)}:${c[0]},${c[1]}`;
+}
+
+function osmPoiPopupContent(p = {}, feature = null) {
+  const name = osmPoiDisplayName(p);
+  const type = osmPoiTypeLabel(p);
+  const id = p.__osmType && p.__osmId ? `${p.__osmType}/${p.__osmId}` : 'OSM';
+
+  let html = `
+    <div class="osm-poi-popup" style="min-width:220px">
+      <div style="font-weight:700;margin-bottom:4px">${esc(name)}</div>
+      <div style="font-size:13px;margin-bottom:6px">${esc(type)}</div>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">${esc(id)}</div>
+  `;
+
+  if (p.ele) html += `<div><b>Elevation:</b> ${esc(p.ele)} m</div>`;
+  if (p.description) html += `<div style="margin-top:6px">${esc(p.description)}</div>`;
+  if (p.website) {
+    const raw = String(p.website).trim();
+    const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    html += `<div style="margin-top:6px"><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">Website</a></div>`;
+  }
+
+  if (feature?.geometry?.coordinates?.length >= 2) {
+    const lng = Number(feature.geometry.coordinates[0]);
+    const lat = Number(feature.geometry.coordinates[1]);
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      html += `
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e8edf3">
+          <button
+            type="button"
+            class="btn osm-poi-save-pin-btn"
+            data-osm-poi-lat="${lat}"
+            data-osm-poi-lng="${lng}"
+            data-osm-poi-name="${esc(name)}"
+            data-osm-poi-type="${esc(type)}"
+            style="width:100%;text-align:center"
+          >
+            ➕ Save as Pin
+          </button>
+        </div>
+      `;
+    }
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function loadOsmPoiFeaturesFromStorage() {
+  try {
+    const raw = localStorage.getItem(OSM_POI_CACHE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(arr)
+      ? arr.filter(f =>
+          f?.type === 'Feature' &&
+          f?.geometry?.type === 'Point' &&
+          Array.isArray(f.geometry.coordinates) &&
+          f.geometry.coordinates.length >= 2
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOsmPoiFeaturesToStorage(features = osmPoiFeatures) {
+  try {
+    localStorage.setItem(OSM_POI_CACHE_KEY, JSON.stringify(features));
+  } catch (err) {
+    console.warn('Could not save OSM POI cache:', err);
+  }
+}
+
+function dedupeOsmPoiFeatures(features = []) {
+  const seen = new Set();
+  const out = [];
+
+  features.forEach(feature => {
+    const key = osmPoiFeatureKey(feature);
+    if (seen.has(key)) return;
+
+    seen.add(key);
+    out.push(feature);
+  });
+
+  return out;
+}
+
+function renderOsmPoiLayer() {
+  osmPoiLayer.clearLayers();
+
+  osmPoiLayer.addData({
+    type: 'FeatureCollection',
+    features: osmPoiFeatures
+  });
+}
+
+function buildOverpassPoiQuery(bounds) {
+  const s = bounds.getSouth();
+  const w = bounds.getWest();
+  const n = bounds.getNorth();
+  const e = bounds.getEast();
+  const bbox = `${s},${w},${n},${e}`;
+
+  return `
+[out:json][timeout:25];
+(
+  node["tourism"~"^(viewpoint|attraction|information|picnic_site|camp_site|wilderness_hut)$"](${bbox});
+  way["tourism"~"^(viewpoint|attraction|information|picnic_site|camp_site|wilderness_hut)$"](${bbox});
+  relation["tourism"~"^(viewpoint|attraction|information|picnic_site|camp_site|wilderness_hut)$"](${bbox});
+
+  node["waterway"="waterfall"](${bbox});
+  way["waterway"="waterfall"](${bbox});
+  relation["waterway"="waterfall"](${bbox});
+
+  node["natural"~"^(peak|cave_entrance|beach|spring)$"](${bbox});
+  way["natural"~"^(peak|cave_entrance|beach|spring)$"](${bbox});
+  relation["natural"~"^(peak|cave_entrance|beach|spring)$"](${bbox});
+
+  node["amenity"~"^(shelter|parking|toilets|drinking_water)$"](${bbox});
+  way["amenity"~"^(shelter|parking|toilets|drinking_water)$"](${bbox});
+  relation["amenity"~"^(shelter|parking|toilets|drinking_water)$"](${bbox});
+);
+out center tags ${OSM_POI_MAX_FEATURES};
+`;
+}
+
+async function fetchOsmPoiFromOverpass(bounds) {
+  const body = new URLSearchParams({
+    data: buildOverpassPoiQuery(bounds)
+  });
+
+  const res = await fetch(OSM_OVERPASS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'Accept': 'application/json'
+    },
+    body
+  });
+
+  if (!res.ok) {
+    throw new Error(`Overpass HTTP ${res.status}`);
+  }
+
+  const json = await res.json();
+  const elements = Array.isArray(json?.elements) ? json.elements : [];
+
+  return elements
+    .map(el => {
+      const tags = el.tags || {};
+
+      const lat = Number.isFinite(+el.lat)
+        ? +el.lat
+        : Number.isFinite(+el.center?.lat)
+          ? +el.center.lat
+          : null;
+
+      const lon = Number.isFinite(+el.lon)
+        ? +el.lon
+        : Number.isFinite(+el.center?.lon)
+          ? +el.center.lon
+          : null;
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+      return {
+        type: 'Feature',
+        properties: {
+          ...tags,
+          __osmType: el.type,
+          __osmId: el.id
+        },
+        geometry: {
+          type: 'Point',
+          coordinates: [lon, lat]
+        }
+      };
+    })
+    .filter(Boolean);
+}
+
+function updateOsmPoiVisibility() {
+  if (!showOsmPoi) return;
+
+  if (showOsmPoi.checked) {
+    if (!map.hasLayer(osmPoiLayer)) osmPoiLayer.addTo(map);
+    scheduleOsmPoiLoad();
+  } else {
+    map.removeLayer(osmPoiLayer);
+  }
+}
+
+async function loadOsmPoiForVisibleArea() {
+  if (!showOsmPoi?.checked) return;
+
+  const z = map.getZoom();
+
+  if (z < OSM_POI_MIN_LOAD_ZOOM) {
+    renderOsmPoiLayer();
+    if (!map.hasLayer(osmPoiLayer)) osmPoiLayer.addTo(map);
+    console.info(`OSM POIs are zoom-gated. Zoom to z${OSM_POI_MIN_LOAD_ZOOM}+ to refresh. Current zoom: z${z}.`);
+    return;
+  }
+
+  if (osmPoiLoading) return;
+
+  osmPoiLoading = true;
+
+  try {
+    const fresh = await fetchOsmPoiFromOverpass(map.getBounds());
+
+    osmPoiFeatures = dedupeOsmPoiFeatures([
+      ...osmPoiFeatures,
+      ...fresh
+    ]);
+
+    saveOsmPoiFeaturesToStorage(osmPoiFeatures);
+    renderOsmPoiLayer();
+
+    if (showOsmPoi?.checked && !map.hasLayer(osmPoiLayer)) {
+      osmPoiLayer.addTo(map);
+    }
+
+    console.info(`Loaded ${fresh.length} OSM POI(s). Cache now has ${osmPoiFeatures.length}.`);
+    try { updateLayerHealth?.(); } catch {}
+  } catch (err) {
+    console.warn('OSM POI load failed:', err);
+  } finally {
+    osmPoiLoading = false;
+  }
+}
+
+function scheduleOsmPoiLoad() {
+  if (!showOsmPoi?.checked) return;
+
+  clearTimeout(osmPoiMoveTimer);
+  osmPoiMoveTimer = setTimeout(() => {
+    loadOsmPoiForVisibleArea();
+  }, 500);
+}
+
+// Save an OSM POI as one of your normal app pins.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.osm-poi-save-pin-btn');
+  if (!btn) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  const lat = Number(btn.getAttribute('data-osm-poi-lat'));
+  const lng = Number(btn.getAttribute('data-osm-poi-lng'));
+  const name = btn.getAttribute('data-osm-poi-name') || 'OSM point of interest';
+  const typeLabel = btn.getAttribute('data-osm-poi-type') || 'Point of interest';
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  let pinTypeForPoi = 'Other';
+
+  if (/viewpoint|lookout/i.test(typeLabel)) pinTypeForPoi = 'Viewpoint';
+  else if (/parking/i.test(typeLabel)) pinTypeForPoi = 'Parking';
+  else if (/waterfall|spring|drinking water/i.test(typeLabel)) pinTypeForPoi = 'Water';
+  else if (/camp/i.test(typeLabel)) pinTypeForPoi = 'Camping';
+  else if (/guidepost|information|peak|summit/i.test(typeLabel)) pinTypeForPoi = 'Trailhead';
+
+  try {
+    pins.push({
+      type: pinTypeForPoi,
+      label: name,
+      lat,
+      lng
+    });
+
+    savePinsToStorage?.();
+    refreshPins?.();
+
+    btn.disabled = true;
+    btn.textContent = 'Saved as Pin';
+  } catch (err) {
+    console.warn('Could not save OSM POI as pin:', err);
+  }
+});
+
+// Initial OSM POI cache load.
+osmPoiFeatures = loadOsmPoiFeaturesFromStorage();
+renderOsmPoiLayer();
+
+showOsmPoi?.addEventListener('change', updateOsmPoiVisibility);
+
+map.on('moveend zoomend', () => {
+  if (showOsmPoi?.checked) scheduleOsmPoiLoad();
+});
 
 
   // ---------------------------------------------------------------------------
@@ -4868,6 +5274,8 @@ renderRouteList();
     if (on) { await ensureAccessLoaded(); if (accessLoaded) accessLayer.addTo(map); else showAccess.checked = false; }
     else map.removeLayer(accessLayer);
   });
+
+  restoreCheckbox(showOsmPoi, () => updateOsmPoiVisibility());
 
   restoreCheckbox(showContours, (on) => { /* visibility managed below */ 
     if (on) { /* ensure it reacts immediately */ }
