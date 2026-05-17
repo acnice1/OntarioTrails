@@ -19,6 +19,90 @@ const map = L.map('map', {
 }).setView([45.4215, -75.6972], 11);
  const zoomControl = L.control.zoom({ position: 'topright' }).addTo(map);
 
+ // ---------------------------------------------------------------------------
+// Mini compass control — appears below zoom +/- when compass is enabled
+// ---------------------------------------------------------------------------
+let miniCompassControl = null;
+let miniCompassEl = null;
+let miniCompassNeedleEl = null;
+let miniCompassHeadingEl = null;
+let miniCompassDirectionEl = null;
+
+function initMiniCompassControl() {
+  if (miniCompassControl) return;
+
+  const MiniCompassControl = L.Control.extend({
+    options: {
+      position: 'topright'
+    },
+
+    onAdd: function () {
+      const el = L.DomUtil.create('div', 'leaflet-control mini-compass-control');
+      el.innerHTML = `
+        <div class="mini-compass-dial" aria-hidden="true">
+          <div class="mini-compass-needle"></div>
+          <div class="mini-compass-n">N</div>
+        </div>
+        <div class="mini-compass-readout">
+          <div class="mini-compass-heading">—°</div>
+          <div class="mini-compass-direction">—</div>
+        </div>
+      `;
+
+      L.DomEvent.disableClickPropagation(el);
+      L.DomEvent.disableScrollPropagation(el);
+
+      miniCompassEl = el;
+      miniCompassNeedleEl = el.querySelector('.mini-compass-needle');
+      miniCompassHeadingEl = el.querySelector('.mini-compass-heading');
+      miniCompassDirectionEl = el.querySelector('.mini-compass-direction');
+
+      el.style.display = 'none';
+
+      return el;
+    }
+  });
+
+  miniCompassControl = new MiniCompassControl();
+  miniCompassControl.addTo(map);
+}
+
+function showMiniCompass() {
+  initMiniCompassControl();
+  if (miniCompassEl) miniCompassEl.style.display = 'flex';
+}
+
+function hideMiniCompass() {
+  if (miniCompassEl) miniCompassEl.style.display = 'none';
+
+  if (miniCompassNeedleEl) {
+    miniCompassNeedleEl.style.transform = 'translate(-50%, -100%) rotate(0deg)';
+  }
+
+  if (miniCompassHeadingEl) miniCompassHeadingEl.textContent = '—°';
+  if (miniCompassDirectionEl) miniCompassDirectionEl.textContent = '—';
+}
+
+function updateMiniCompass(heading) {
+  if (!Number.isFinite(+heading)) return;
+
+  const h = ((+heading % 360) + 360) % 360;
+
+  if (miniCompassNeedleEl) {
+    miniCompassNeedleEl.style.transform = `translate(-50%, -100%) rotate(${h}deg)`;
+  }
+
+  if (miniCompassHeadingEl) {
+    miniCompassHeadingEl.textContent = `${Math.round(h)}°`;
+  }
+
+  if (miniCompassDirectionEl) {
+    miniCompassDirectionEl.textContent = headingToCardinal(h);
+  }
+}
+
+initMiniCompassControl();
+
 function updateZoomControlTitles() {
   const z = map.getZoom();
   const maxZ = map.getMaxZoom();
@@ -5630,6 +5714,8 @@ function updateCompass(heading) {
   if (compassDirection) {
     compassDirection.textContent = headingToCardinal(h);
   }
+
+  updateMiniCompass(h);
 }
 
 function handleDeviceOrientation(event) {
@@ -5662,6 +5748,8 @@ async function enableCompass() {
     window.addEventListener('deviceorientation', handleDeviceOrientation, true);
     compassEnabled = true;
 
+    showMiniCompass();
+
     if (enableCompassBtn) enableCompassBtn.textContent = 'Disable compass';
     if (compassHeading) compassHeading.textContent = 'Move device to calibrate';
   } catch (err) {
@@ -5675,6 +5763,8 @@ function disableCompass() {
 
   window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
   compassEnabled = false;
+
+  hideMiniCompass();
 
   if (enableCompassBtn) enableCompassBtn.textContent = 'Enable compass';
   if (compassHeading) compassHeading.textContent = 'Heading unavailable';
@@ -5694,8 +5784,6 @@ async function toggleCompass() {
 }
 
 enableCompassBtn?.addEventListener('click', toggleCompass);
-
-enableCompassBtn?.addEventListener('click', enableCompass);
 
 async function hasCache(name) {
   if (!('caches' in window)) return false;

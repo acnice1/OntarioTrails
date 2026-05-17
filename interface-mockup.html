@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Ontario Trails — Interface Cleanup Mockup</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="stylesheet" href="./app.css" />
+  <style>
+    :root {
+      --accent: #1472ff;
+      --good: #15803d;
+      --warn: #b45309;
+      --danger: #be123c;
+      --soft: rgba(255,255,255,.82);
+    }
+
+    body {
+      font: 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink);
+      background: #dbeafe;
+      overflow: hidden;
+    }
+
+    #mockMap {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 22% 22%, rgba(22,163,74,.24), transparent 26%),
+        radial-gradient(circle at 73% 35%, rgba(59,130,246,.18), transparent 27%),
+        radial-gradient(circle at 58% 78%, rgba(132,204,22,.20), transparent 29%),
+        linear-gradient(135deg, #dbeafe 0%, #e7f5e4 45%, #f8fafc 100%);
+    }
+
+    #mockMap::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: .35;
+      background-image:
+        linear-gradient(rgba(15,23,42,.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(15,23,42,.08) 1px, transparent 1px);
+      background-size: 64px 64px;
+    }
+
+    .mock-trail {
+      position: absolute;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(139, 90, 43, .75);
+      box-shadow: 0 1px 0 rgba(255,255,255,.7);
+      transform-origin: left center;
+    }
+    .t1 { width: 360px; left: 32%; top: 38%; transform: rotate(18deg); }
+    .t2 { width: 280px; left: 47%; top: 55%; transform: rotate(-31deg); background: rgba(20,114,255,.55); }
+    .t3 { width: 220px; left: 18%; top: 62%; transform: rotate(41deg); background: rgba(139,90,43,.52); }
+
+    .map-chip-row {
+      position: absolute;
+      left: 380px;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .status-chip {
+      background: var(--soft);
+      border: 1px solid rgba(148,163,184,.45);
+      border-radius: 999px;
+      padding: 6px 10px;
+      box-shadow: 0 3px 14px rgba(15,23,42,.08);
+      backdrop-filter: blur(4px);
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .status-chip.good { color: var(--good); }
+    .status-chip.warn { color: var(--warn); }
+    .status-chip.private { color: var(--danger); font-weight: 700; }
+
+    .control-panel.mock {
+      transform: none;
+      width: 350px;
+      max-height: calc(100% - 24px);
+      top: 12px;
+    }
+
+    .panel-header h2 span {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      opacity: .65;
+      margin-top: 2px;
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      padding: 8px;
+      border-bottom: 1px solid #e8edf3;
+      background: rgba(248,250,252,.65);
+    }
+
+    .quick-action {
+      border: 1px solid #dbe3ee;
+      background: #fff;
+      border-radius: 12px;
+      padding: 7px 4px;
+      cursor: pointer;
+      text-align: center;
+      box-shadow: 0 2px 10px rgba(15,23,42,.05);
+      font-size: 12px;
+    }
+
+    .quick-action strong {
+      display: block;
+      font-size: 16px;
+      line-height: 1;
+      margin-bottom: 3px;
+    }
+
+    .mock-tabs {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      padding: 8px;
+      border-bottom: 1px solid #e8edf3;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(6px);
+    }
+
+    .mock-tab-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      border-radius: 10px;
+      padding: 8px 4px;
+      cursor: pointer;
+      color: #475467;
+      font-weight: 650;
+      font-size: 13px;
+    }
+
+    .mock-tab-btn.active {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #0f4fb8;
+    }
+
+    .mock-panel { display: none; }
+    .mock-panel.active { display: block; }
+
+    .section-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .section-title-row h3 { margin: 0; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      background: #f2f4f7;
+      color: #475467;
+      white-space: nowrap;
+    }
+
+    .pill.good { background: #dcfce7; color: #166534; }
+    .pill.warn { background: #fef3c7; color: #92400e; }
+    .pill.pro { background: #eef2ff; color: #3730a3; }
+    .pill.private { background: #ffe4e6; color: #9f1239; }
+
+    .setting-card {
+      border: 1px solid #e5e7eb;
+      background: rgba(255,255,255,.78);
+      border-radius: 14px;
+      padding: 10px;
+      margin: 8px 0;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 0;
+    }
+
+    .setting-row + .setting-row { border-top: 1px solid #eef2f7; }
+
+    .setting-row label,
+    .setting-row .label-block {
+      display: block;
+      flex: 1 1 auto;
+    }
+
+    .setting-row small,
+    .setting-help {
+      display: block;
+      margin-top: 2px;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .toggle-switch {
+      width: 42px;
+      height: 24px;
+      border-radius: 999px;
+      background: #d0d5dd;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .toggle-switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    }
+    .toggle-switch.on { background: #1472ff; }
+    .toggle-switch.on::after { left: 21px; }
+
+    .compact-search {
+      display: flex;
+      gap: 8px;
+    }
+    .compact-search input {
+      flex: 1;
+      border: 1px solid #d9e0e6;
+      border-radius: 999px;
+      padding: 9px 12px;
+      font-size: 16px;
+    }
+
+    .data-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .data-tile {
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 10px;
+      background: #fff;
+      box-shadow: 0 2px 10px rgba(15,23,42,.04);
+    }
+    .data-tile strong {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 2px;
+    }
+    .data-tile span {
+      font-size: 12px;
+      color: #667085;
+    }
+
+    .large-action {
+      width: 100%;
+      border: 1px solid #dbe3ee;
+      background: #fff;
+      border-radius: 14px;
+      padding: 10px 12px;
+      text-align: left;
+      cursor: pointer;
+      margin-top: 8px;
+      box-shadow: 0 2px 10px rgba(15,23,42,.04);
+    }
+    .large-action b { display: block; margin-bottom: 3px; }
+    .large-action span { color: #667085; font-size: 12px; }
+    .large-action.primary { border-color: #bfdbfe; background: #eff6ff; }
+    .large-action.danger { border-color: #fecdd3; background: #fff1f2; }
+
+    .field-hero {
+      border-radius: 16px;
+      padding: 12px;
+      background: linear-gradient(135deg, #fff1f2, #ffffff);
+      border: 1px solid #fecdd3;
+      margin-bottom: 10px;
+    }
+    .field-hero h3 { margin: 0 0 4px; color: #9f1239; }
+    .field-hero .coords { font-size: 22px; font-weight: 750; letter-spacing: -.02em; margin: 8px 0; }
+
+    .two-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .map-legend-card {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      width: 220px;
+      z-index: 10;
+      background: var(--soft);
+      border: 1px solid rgba(148,163,184,.45);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 4px 18px rgba(15,23,42,.1);
+      backdrop-filter: blur(4px);
+    }
+
+    @media (max-width: 768px) {
+      body { overflow: auto; }
+      #mockMap { position: fixed; }
+      .control-panel.mock {
+        width: auto;
+        left: 12px;
+        right: 12px;
+        top: auto;
+        bottom: 12px;
+        max-height: 72dvh;
+      }
+      .map-chip-row { left: 12px; top: 12px; right: 12px; }
+      .map-legend-card { display: none; }
+      .quick-actions { grid-template-columns: repeat(5, minmax(0,1fr)); }
+      .quick-action { font-size: 11px; padding: 7px 2px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="mockMap" aria-hidden="true">
+    <div class="mock-trail t1"></div>
+    <div class="mock-trail t2"></div>
+    <div class="mock-trail t3"></div>
+  </div>
+
+  <div class="map-chip-row">
+    <div class="status-chip good">Online</div>
+    <div class="status-chip">GPS ±8 m</div>
+    <div class="status-chip">z14</div>
+    <div class="status-chip warn">2 offline areas</div>
+    <div class="status-chip private">Privacy Mode On</div>
+  </div>
+
+  <aside class="control-panel mock open" aria-label="Ontario Trails controls mockup">
+    <div class="panel-header">
+      <h2>Ontario Trails <span>clean interface concept</span></h2>
+      <button class="icon-btn" title="Close">✕</button>
+    </div>
+
+    <div class="quick-actions" aria-label="Quick actions">
+      <button class="quick-action"><strong>📍</strong>Locate</button>
+      <button class="quick-action"><strong>🔎</strong>Search</button>
+      <button class="quick-action"><strong>➕</strong>Pin</button>
+      <button class="quick-action"><strong>⬇️</strong>Offline</button>
+      <button class="quick-action"><strong>🆘</strong>Help</button>
+    </div>
+
+    <nav class="mock-tabs" aria-label="Main tabs">
+      <button class="mock-tab-btn active" data-tab="mapTab">Map</button>
+      <button class="mock-tab-btn" data-tab="planTab">Plan</button>
+      <button class="mock-tab-btn" data-tab="dataTab">Data</button>
+      <button class="mock-tab-btn" data-tab="fieldTab">Field</button>
+      <button class="mock-tab-btn" data-tab="settingsTab">Settings</button>
+    </nav>
+
+    <section id="mapTab" class="mock-panel active">
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Search</h3><span class="pill">map-first</span></div>
+        <div class="compact-search">
+          <input type="search" placeholder="Find lake, trail, road, POI…">
+          <button class="btn">Go</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Basemap</h3><span class="pill good">Online OSM</span></div>
+        <div class="setting-card">
+          <div class="setting-row"><div class="label-block">Online basemap<small>Default map tiles</small></div><span class="toggle-switch on"></span></div>
+          <div class="setting-row"><div class="label-block">Offline basemap<small>Use downloaded R2 tiles when available</small></div><span class="toggle-switch"></span></div>
+          <div class="setting-row"><div class="label-block">Satellite imagery<small>Ontario imagery layer</small></div><span class="toggle-switch"></span></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Layers</h3><span class="pill">grouped</span></div>
+        <details open class="setting-card">
+          <summary><b>Trails & POIs</b></summary>
+          <div class="setting-row"><div class="label-block">OTN trails</div><span class="toggle-switch on"></span></div>
+          <div class="setting-row"><div class="label-block">OSM trails<small>Cached Overpass trails</small></div><span class="toggle-switch on"></span></div>
+          <div class="setting-row"><div class="label-block">Points of Interest<small>Lookouts, waterfalls, peaks, campsites</small></div><span class="toggle-switch on"></span></div>
+        </details>
+        <details class="setting-card">
+          <summary><b>Outdoor info</b></summary>
+          <div class="setting-row"><div class="label-block">Contours</div><span class="toggle-switch"></span></div>
+          <div class="setting-row"><div class="label-block">Crown land</div><span class="toggle-switch"></span></div>
+          <div class="setting-row"><div class="label-block">Stocked lakes</div><span class="toggle-switch"></span></div>
+          <div class="setting-row"><div class="label-block">Water access points</div><span class="toggle-switch"></span></div>
+        </details>
+        <details class="setting-card">
+          <summary><b>My data</b></summary>
+          <div class="setting-row"><div class="label-block">Pins</div><span class="toggle-switch on"></span></div>
+          <div class="setting-row"><div class="label-block">Saved routes</div><span class="toggle-switch"></span></div>
+          <div class="setting-row"><div class="label-block">Track line</div><span class="toggle-switch"></span></div>
+        </details>
+      </div>
+    </section>
+
+    <section id="planTab" class="mock-panel">
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Trip planning</h3><span class="pill pro">Pro-ready</span></div>
+        <button class="large-action primary"><b>Plan offline area</b><span>Preview a box, estimate tiles, then download for field use.</span></button>
+        <button class="large-action"><b>Add pin at map centre</b><span>Camping, water, viewpoint, hazard, parking, trailhead, other.</span></button>
+        <button class="large-action"><b>Start plotting route</b><span>Tap the map to create a simple planned route.</span></button>
+      </div>
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Saved trip items</h3><span class="pill">private</span></div>
+        <div class="data-grid">
+          <div class="data-tile"><strong>12</strong><span>Pins</span></div>
+          <div class="data-tile"><strong>4</strong><span>Routes</span></div>
+        </div>
+        <button class="large-action"><b>Open route list</b><span>Zoom to, rename, hide, or delete saved routes.</span></button>
+      </div>
+    </section>
+
+    <section id="dataTab" class="mock-panel">
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Backup & restore</h3><span class="pill private">privacy-sensitive</span></div>
+        <button class="large-action primary"><b>Export all user data</b><span>Pins, routes, tracks, and settings in one JSON backup.</span></button>
+        <button class="large-action"><b>Import app backup</b><span>Restore a previous Ontario Trails backup file.</span></button>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Your data</h3><span class="pill">user-created</span></div>
+        <div class="data-grid">
+          <div class="data-tile"><strong>12</strong><span>Pins</span></div>
+          <div class="data-tile"><strong>4</strong><span>Routes</span></div>
+          <div class="data-tile"><strong>2</strong><span>Tracks</span></div>
+          <div class="data-tile"><strong>18 KB</strong><span>Settings</span></div>
+        </div>
+        <div class="two-buttons">
+          <button class="btn">Export pins</button>
+          <button class="btn">Import pins</button>
+          <button class="btn">Export routes</button>
+          <button class="btn">Import routes</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Downloaded public data</h3><span class="pill warn">cache</span></div>
+        <div class="data-grid">
+          <div class="data-tile"><strong>342</strong><span>OSM trail segments</span></div>
+          <div class="data-tile"><strong>86</strong><span>OSM POIs</span></div>
+          <div class="data-tile"><strong>3</strong><span>Offline areas</span></div>
+          <div class="data-tile"><strong>126 MB</strong><span>Estimated storage</span></div>
+        </div>
+        <button class="large-action"><b>Refresh storage estimate</b><span>Check browser/device storage use.</span></button>
+        <button class="large-action danger"><b>Clear downloaded public cache</b><span>Does not delete pins, routes, or tracks.</span></button>
+      </div>
+    </section>
+
+    <section id="fieldTab" class="mock-panel">
+      <div class="panel-section">
+        <div class="field-hero">
+          <h3>Emergency location</h3>
+          <div class="muted">Last GPS fix · ±8 m · 10:42 AM</div>
+          <div class="coords">45.421532, -75.697189</div>
+          <div class="two-buttons">
+            <button class="btn">Copy info</button>
+            <button class="btn">Open maps</button>
+          </div>
+        </div>
+        <button class="large-action primary"><b>Start tracking</b><span>Record your current route as GPX.</span></button>
+        <button class="large-action"><b>Compass</b><span>Enable only when needed to save battery.</span></button>
+        <button class="large-action"><b>Keep screen awake</b><span>Useful during navigation, higher battery use.</span></button>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Field status</h3><span class="pill good">ready</span></div>
+        <div class="setting-card">
+          <div class="setting-row"><div class="label-block">Offline area nearby<small>2 saved areas intersect current map</small></div><span class="pill good">OK</span></div>
+          <div class="setting-row"><div class="label-block">GPS accuracy<small>Last known fix</small></div><span class="pill good">±8 m</span></div>
+          <div class="setting-row"><div class="label-block">Compass sensor<small>Disabled to save battery</small></div><span class="pill warn">Off</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="settingsTab" class="mock-panel">
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Privacy</h3><span class="pill private">important</span></div>
+        <div class="setting-card">
+          <div class="setting-row"><div class="label-block">Privacy Mode<small>Hide pins, saved routes, and personal labels.</small></div><span class="toggle-switch on"></span></div>
+          <div class="setting-row"><div class="label-block">Hide coordinates in lists<small>Useful for screenshots or demos.</small></div><span class="toggle-switch on"></span></div>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Automation</h3><span class="pill">preferences</span></div>
+        <div class="setting-card">
+          <div class="setting-row"><div class="label-block">Auto-load OSM trails after search<small>Refresh visible OSM trails when a result is selected.</small></div><span class="toggle-switch"></span></div>
+          <div class="setting-row"><div class="label-block">Auto-refresh POIs on map move<small>Only at z13+ to avoid noise.</small></div><span class="toggle-switch on"></span></div>
+          <div class="setting-row"><div class="label-block">Show offline area boxes<small>Display downloaded coverage rectangles.</small></div><span class="toggle-switch on"></span></div>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="section-title-row"><h3>Advanced</h3><span class="pill warn">careful</span></div>
+        <button class="large-action"><b>Layer health</b><span>Check loaded datasets, caches, and service status.</span></button>
+        <button class="large-action danger"><b>Reset app settings</b><span>Does not delete user pins or routes unless selected.</span></button>
+      </div>
+    </section>
+  </aside>
+
+  <div class="map-legend-card">
+    <b>Cleaner map concept</b>
+    <div class="muted" style="margin-top:4px;line-height:1.35">Most admin actions move to Data. Field tools are separated from planning and settings.</div>
+  </div>
+
+  <script>
+    const buttons = Array.from(document.querySelectorAll('.mock-tab-btn'));
+    const panels = Array.from(document.querySelectorAll('.mock-panel'));
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.tab;
+        buttons.forEach(b => b.classList.toggle('active', b === btn));
+        panels.forEach(p => p.classList.toggle('active', p.id === id));
+      });
+    });
+  </script>
+</body>
+</html>
