@@ -3282,6 +3282,25 @@ async function sharePin(p) {
   };
 }
 
+function pinPopupHtml(p) {
+  const label = (p.label || p.type || 'Pin').toString();
+
+  return `
+    <div class="pin-popup" style="min-width:200px">
+      <div style="font-weight:700;margin-bottom:4px">${esc(label)}</div>
+      <div style="font-size:.85rem;opacity:.75;margin-bottom:.35rem">${esc(p.type || 'Other')}</div>
+      <div style="font-size:.85rem;opacity:.7;margin-bottom:.6rem">${formatCoords(p.lat, p.lng)}</div>
+
+      <div class="pin-popup-actions">
+        <button type="button" class="pin-share-inline">🔗 Share Pin</button>
+        <button type="button" class="pin-del-inline">🗑️ Delete pin</button>
+      </div>
+
+      <div class="pin-share-status" style="display:none;margin-top:6px;font-size:12px;line-height:1.3"></div>
+    </div>
+  `;
+}
+
 function renderPinList() {
   const list = ensurePinListContainer();
   if (!pins || !pins.length) {
@@ -3336,7 +3355,10 @@ ensurePinListContainer().addEventListener('click', (e) => {
 
     // Try to open the marker tooltip
     const m = pinMarkers[idx];
-    try { m?.openTooltip?.(); } catch {}
+    try {
+  m?.openPopup?.();
+} catch {}
+
   }
 
   if (action === 'del') {
@@ -3356,78 +3378,70 @@ refreshPins = function patchedRefreshPins() {
   pinMarkers = [];
 
 pins.forEach((p, idx) => {
-    const m = L.marker([p.lat, p.lng], {
-      title: p.label || p.type,
-      icon: iconForType(p.type) // ✅ use your custom icon
+  const m = L.marker([p.lat, p.lng], {
+    title: p.label || p.type,
+    icon: iconForType(p.type)
+  });
+
+  m.bindTooltip(p.label || p.type);
+
+  // Bind the full popup immediately.
+  // This avoids Leaflet opening a stale/partial popup when switching quickly between pins.
+  m.bindPopup(pinPopupHtml(p), {
+    closeButton: true,
+    maxWidth: 280
+  });
+
+  m.addTo(pinsLayer);
+  pinMarkers[idx] = m;
+
+  m.on('popupopen', (ev) => {
+    const node = ev?.popup?._contentNode;
+    if (!node) return;
+
+    const shareBtn = node.querySelector('.pin-share-inline');
+    const deleteBtn = node.querySelector('.pin-del-inline');
+    const statusEl = node.querySelector('.pin-share-status');
+
+    shareBtn?.addEventListener('click', async (clickEv) => {
+      clickEv.preventDefault();
+      clickEv.stopPropagation();
+
+      const i = pinMarkers.indexOf(m);
+      if (i < 0 || !pins[i]) return;
+
+      const result = await sharePin(pins[i]);
+
+      if (!statusEl) return;
+
+      statusEl.style.display = 'block';
+
+      if (result.method === 'share') {
+        statusEl.textContent = 'Share sheet opened.';
+      } else if (result.method === 'clipboard') {
+        statusEl.textContent = 'Share link copied.';
+      } else if (result.method === 'cancelled') {
+        statusEl.textContent = 'Share cancelled.';
+      } else {
+        statusEl.innerHTML = `Copy this link:<br><span style="word-break:break-all">${esc(result.url || '')}</span>`;
+      }
     });
-    m.bindTooltip(p.label || p.type);
-    m.addTo(pinsLayer);
-    pinMarkers[idx] = m;
 
-    // Optional: single-tap delete from marker popup (phone-friendly)
-    // Left-click opens popup with a delete button; remove if you don't want this.
-m.on('click', () => {
-  const label = (p.label || p.type || 'Pin').toString();
+    deleteBtn?.addEventListener('click', (clickEv) => {
+      clickEv.preventDefault();
+      clickEv.stopPropagation();
 
-  m.bindPopup(
-    `<div class="pin-popup" style="min-width:200px">
-       <div style="font-weight:700;margin-bottom:4px">${esc(label)}</div>
-       <div style="font-size:.85rem;opacity:.75;margin-bottom:.35rem">${esc(p.type || 'Other')}</div>
-       <div style="font-size:.85rem;opacity:.7;margin-bottom:.6rem">${formatCoords(p.lat, p.lng)}</div>
+      const i = pinMarkers.indexOf(m);
 
-       <div class="pin-popup-actions">
-         <button type="button" class="pin-share-inline">🔗 Share Pin</button>
-         <button type="button" class="pin-del-inline">🗑️ Delete pin</button>
-       </div>
+      if (i >= 0) {
+        pins.splice(i, 1);
+        savePinsToStorage?.();
+        refreshPins();
 
-       <div class="pin-share-status" style="display:none;margin-top:6px;font-size:12px;line-height:1.3"></div>
-     </div>`,
-    { closeButton: true }
-  ).openPopup();
-});
-m.on('popupopen', (ev) => {
-  const node = ev?.popup?._contentNode;
-  if (!node) return;
-
-  const shareBtn = node.querySelector('.pin-share-inline');
-  const deleteBtn = node.querySelector('.pin-del-inline');
-  const statusEl = node.querySelector('.pin-share-status');
-
-  shareBtn?.addEventListener('click', async () => {
-    const i = pinMarkers.indexOf(m);
-    if (i < 0 || !pins[i]) return;
-
-    const result = await sharePin(pins[i]);
-
-    if (!statusEl) return;
-
-    statusEl.style.display = 'block';
-
-    if (result.method === 'share') {
-      statusEl.textContent = 'Share sheet opened.';
-    } else if (result.method === 'clipboard') {
-      statusEl.textContent = 'Share link copied.';
-    } else if (result.method === 'cancelled') {
-      statusEl.textContent = 'Share cancelled.';
-    } else {
-      statusEl.innerHTML = `Copy this link:<br><span style="word-break:break-all">${esc(result.url || '')}</span>`;
-    }
+        try { map.closePopup(); } catch {}
+      }
+    });
   });
-
-  deleteBtn?.addEventListener('click', () => {
-    const i = pinMarkers.indexOf(m);
-
-    if (i >= 0) {
-      pins.splice(i, 1);
-      savePinsToStorage?.();
-      refreshPins();
-      renderPinList();
-
-      try { map.closePopup(); } catch {}
-    }
-  });
-});
-
 });
 
    if (pinCount) pinCount.textContent = pins.length ? `${pins.length} pin(s)` : '';
