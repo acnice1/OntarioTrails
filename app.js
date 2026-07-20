@@ -710,6 +710,43 @@ const constrained = {
     }, 150);
   }
 
+  // ---------------------------------------------------------------------------
+// Delayed auto-load after search.
+// Prevents immediate Overpass requests every time a search result is clicked.
+// ---------------------------------------------------------------------------
+
+let searchAutoLoadTimer = null;
+
+function scheduleOsmTrailLoadAfterSearch() {
+
+    // Feature disabled?
+    if (!settingAutoLoadOsmAfterSearch?.checked)
+        return;
+
+    // Already loading?
+    if (osmTrailsLoading)
+        return;
+
+// Already have coverage for this area?
+if (isCurrentViewportCoveredByCachedOsm())
+    return;
+
+    // Cancel previous pending load.
+    clearTimeout(searchAutoLoadTimer);
+
+    // Wait for the user to finish navigating.
+    searchAutoLoadTimer = setTimeout(() => {
+
+        // User may have turned it off meanwhile.
+        if (!settingAutoLoadOsmAfterSearch?.checked)
+            return;
+
+        loadOsmTrailsAfterSearchMoveIfEnabled();
+
+    }, 2000);
+
+}
+
     function renderResults(list) {
     if (!searchResults) return;
     searchResults.innerHTML = '';
@@ -755,7 +792,7 @@ const constrained = {
 
         div.addEventListener('click', () => {
           openOsmTrailSearchResult(r);
-          loadOsmTrailsAfterSearchMoveIfEnabled();
+          scheduleOsmTrailLoadAfterSearch();
         });
         searchResults.appendChild(div);
         return;
@@ -782,7 +819,7 @@ const constrained = {
             .openPopup();
         }
 
-        loadOsmTrailsAfterSearchMoveIfEnabled();
+        scheduleOsmTrailLoadAfterSearch();
       });
 
       searchResults.appendChild(div);
@@ -1562,6 +1599,116 @@ function storedBoundsToLeafletBounds(b) {
   if (![south, west, north, east].every(Number.isFinite)) return null;
   return L.latLngBounds([south, west], [north, east]);
 }
+// ---------------------------------------------------------------------------
+// Cached OSM download area utilities
+// ---------------------------------------------------------------------------
+
+function leafletBoundsToStored(bounds) {
+
+    return {
+        south: bounds.getSouth(),
+        west: bounds.getWest(),
+        north: bounds.getNorth(),
+        east: bounds.getEast()
+    };
+
+}
+
+function mergeCachedDownloadAreas(newBounds) {
+
+    if (!newBounds) return;
+
+    let merged = newBounds.pad(0);
+
+    let areas = [];
+
+    try {
+
+        const raw = localStorage.getItem(OSM_TRAILS_AREAS_KEY);
+        areas = raw ? JSON.parse(raw) : [];
+
+    } catch {
+        areas = [];
+    }
+
+    const keep = [];
+
+    for (const area of areas) {
+
+        const existing = storedBoundsToLeafletBounds(area);
+
+        if (!existing)
+            continue;
+
+        // Treat areas within ~10% as overlapping.
+        const expanded = existing.pad(0.10);
+
+        if (expanded.intersects(merged)) {
+
+            merged.extend(existing);
+
+        } else {
+
+            keep.push(area);
+
+        }
+
+    }
+
+    keep.push(leafletBoundsToStored(merged));
+
+    try {
+
+        localStorage.setItem(
+            OSM_TRAILS_AREAS_KEY,
+            JSON.stringify(keep)
+        );
+
+    } catch (err) {
+
+        console.warn("Unable to save merged OSM cache areas.", err);
+
+    }
+
+}
+
+// ---------------------------------------------------------------------------
+// Returns true if the current viewport is already covered by one or more
+// cached OSM download areas.
+// ---------------------------------------------------------------------------
+function isCurrentViewportCoveredByCachedOsm() {
+
+    const viewBounds = map.getBounds();
+
+    try {
+
+        const raw = localStorage.getItem(OSM_TRAILS_AREAS_KEY);
+        const cachedAreas = raw ? JSON.parse(raw) : [];
+
+        if (!Array.isArray(cachedAreas))
+            return false;
+
+        // Slightly shrink the viewport so tiny edge pans don't trigger
+        // unnecessary downloads.
+        const paddedView = viewBounds.pad(-0.10);
+
+        return cachedAreas.some(area => {
+
+            const bounds = storedBoundsToLeafletBounds(area);
+
+            return bounds && bounds.contains(paddedView);
+
+        });
+
+    }
+    catch (err) {
+
+        console.warn("Unable to read cached OSM areas.", err);
+        return false;
+
+    }
+
+}
 
 function featureIntersectsBounds(feature, bounds) {
   const fb = osmTrailFeatureBounds(feature);
@@ -1737,31 +1884,62 @@ function renderOsmTrailsLayer() {
 }
 
 function addOrRefreshOsmTrailAreaRecord(bounds, featureCount) {
-  const areas = loadOsmTrailAreas();
-  const sw = bounds.getSouthWest();
-  const ne = bounds.getNorthEast();
 
-  const newArea = {
-    id: `osm-trails-area-${Date.now()}`,
-    createdAt: new Date().toISOString(),
-    featureCount,
-    bounds: {
-      south: sw.lat,
-      west: sw.lng,
-      north: ne.lat,
-      east: ne.lng
+    const areas = loadOsmTrailAreas();
+
+    let mergedBounds = bounds.pad(0);
+
+    const kept = [];
+
+    for (const area of areas) {
+
+        const oldBounds =
+            storedBoundsToLeafletBounds(area.bounds);
+
+        if (!oldBounds) {
+            kept.push(area);
+            continue;
+        }
+
+        // Treat rectangles within ~10% as touching.
+        const expanded = oldBounds.pad(0.10);
+
+        if (expanded.intersects(mergedBounds)) {
+
+            mergedBounds.extend(oldBounds);
+
+        } else {
+
+            kept.push(area);
+
+        }
+
     }
-  };
 
-  const newBounds = storedBoundsToLeafletBounds(newArea.bounds);
+    const sw = mergedBounds.getSouthWest();
+    const ne = mergedBounds.getNorthEast();
 
-  const kept = areas.filter(area => {
-    const oldBounds = storedBoundsToLeafletBounds(area.bounds);
-    return !(oldBounds && newBounds && oldBounds.intersects(newBounds));
-  });
+    kept.push({
 
-  kept.push(newArea);
-  saveOsmTrailAreas(kept);
+        id: `osm-trails-area-${Date.now()}`,
+
+        createdAt: new Date().toISOString(),
+
+        featureCount,
+
+        bounds: {
+
+            south: sw.lat,
+            west: sw.lng,
+            north: ne.lat,
+            east: ne.lng
+
+        }
+
+    });
+
+    saveOsmTrailAreas(kept);
+
 }
 
 function dedupeOsmTrailFeatures(features) {
