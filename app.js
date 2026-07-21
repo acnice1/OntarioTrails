@@ -1531,8 +1531,10 @@ const OSM_AMENITY_TYPES = new Set([
     'information',
     'shelter',
     'bbq',
-    'bicycle_parking',
-    'waste_disposal'
+    'waste_disposal',
+    'picnic_site',
+    'camp_site',
+    'wilderness_hut'
 ]);
 
 let osmTrailFeatures = [];
@@ -2522,6 +2524,7 @@ async function loadOsmPoiForVisibleArea() {
   if (!showOsmPoi?.checked) return;
 
   const z = map.getZoom();
+  
 
   if (z < OSM_POI_MIN_LOAD_ZOOM) {
     renderOsmPoiLayer();
@@ -2560,7 +2563,7 @@ async function loadOsmPoiForVisibleArea() {
 
 function scheduleOsmPoiLoad() {
 
-  if (map.getZoom() < OSM_POI_MIN_ZOOM)
+  if (map.getZoom() < OSM_POI_MIN_LOAD_ZOOM)
     return;
 
   if (!showOsmPoi?.checked) return;
