@@ -1522,6 +1522,19 @@ const OSM_TRAILS_AREAS_KEY = 'ontarioTrails.osmTrails.areas.v1';
 const OSM_TRAILS_MIN_LOAD_ZOOM = 13;
 const OSM_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 
+const OSM_AMENITY_TYPES = new Set([
+    'bench',
+    'picnic_table',
+    'toilets',
+    'drinking_water',
+    'waste_basket',
+    'information',
+    'shelter',
+    'bbq',
+    'bicycle_parking',
+    'waste_disposal'
+]);
+
 let osmTrailFeatures = [];
 let osmTrailsLoading = false;
 
@@ -2353,29 +2366,56 @@ function dedupeOsmPoiFeatures(features = []) {
 
 function renderOsmPoiLayer() {
 
-  const OSM_POI_MIN_ZOOM = 13;
+  //const OSM_POI_MIN_ZOOM = 13;
+
+  const OSM_AMENITY_TYPES = new Set([
+    'bench',
+    'picnic_table',
+    'toilets',
+    'drinking_water',
+    'waste_basket',
+    'information',
+    'shelter',
+    'bbq',
+    'waste_disposal'
+]);
 
     osmPoiLayer.clearLayers();
 
-    // Don't display POIs until sufficiently zoomed in.
-    if (map.getZoom() < OSM_POI_MIN_ZOOM)
-        return;
+
 
     const bounds = map.getBounds().pad(0.10);
 
     osmPoiLayer.addData({
         type: 'FeatureCollection',
-        features: osmPoiFeatures.filter(feature => {
+       features: osmPoiFeatures.filter(feature => {
 
-            const coords = feature.geometry?.coordinates;
+    const p = feature.properties || {};
+    const coords = feature.geometry?.coordinates;
 
-            if (!Array.isArray(coords) || coords.length < 2)
-                return false;
+    if (!Array.isArray(coords))
+        return false;
 
-            return bounds.contains([
-                coords[1],
-                coords[0]
-            ]);
+    // Outside current view?
+    if (!bounds.contains([coords[1], coords[0]]))
+        return false;
+
+    // Hide only minor amenities when zoomed out.
+    const poiType =
+        p.amenity ||
+        p.tourism ||
+        p.leisure ||
+        p.highway ||
+        '';
+
+    if (
+        map.getZoom() < OSM_POI_MIN_LOAD_ZOOM &&
+        OSM_AMENITY_TYPES.has(poiType)
+    ) {
+        return false;
+    }
+
+    return true;
 
         })
     });
@@ -2519,7 +2559,7 @@ async function loadOsmPoiForVisibleArea() {
 }
 
 function scheduleOsmPoiLoad() {
-  
+
   if (map.getZoom() < OSM_POI_MIN_ZOOM)
     return;
 
