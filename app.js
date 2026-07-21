@@ -2352,12 +2352,34 @@ function dedupeOsmPoiFeatures(features = []) {
 }
 
 function renderOsmPoiLayer() {
-  osmPoiLayer.clearLayers();
 
-  osmPoiLayer.addData({
-    type: 'FeatureCollection',
-    features: osmPoiFeatures
-  });
+  const OSM_POI_MIN_ZOOM = 13;
+
+    osmPoiLayer.clearLayers();
+
+    // Don't display POIs until sufficiently zoomed in.
+    if (map.getZoom() < OSM_POI_MIN_ZOOM)
+        return;
+
+    const bounds = map.getBounds().pad(0.10);
+
+    osmPoiLayer.addData({
+        type: 'FeatureCollection',
+        features: osmPoiFeatures.filter(feature => {
+
+            const coords = feature.geometry?.coordinates;
+
+            if (!Array.isArray(coords) || coords.length < 2)
+                return false;
+
+            return bounds.contains([
+                coords[1],
+                coords[0]
+            ]);
+
+        })
+    });
+
 }
 
 function buildOverpassPoiQuery(bounds) {
@@ -2497,6 +2519,10 @@ async function loadOsmPoiForVisibleArea() {
 }
 
 function scheduleOsmPoiLoad() {
+  
+  if (map.getZoom() < OSM_POI_MIN_ZOOM)
+    return;
+
   if (!showOsmPoi?.checked) return;
 
   clearTimeout(osmPoiMoveTimer);
@@ -2553,7 +2579,14 @@ renderOsmPoiLayer();
 showOsmPoi?.addEventListener('change', updateOsmPoiVisibility);
 
 map.on('moveend zoomend', () => {
-  if (showOsmPoi?.checked) scheduleOsmPoiLoad();
+
+    if (showOsmPoi?.checked) {
+
+        renderOsmPoiLayer();      // Refresh visible cached POIs
+        scheduleOsmPoiLoad();     // Download any missing POIs
+
+    }
+
 });
 
 
