@@ -2059,7 +2059,7 @@ function buildOverpassTrailQuery(bounds) {
   const bbox = `${s},${w},${n},${e}`;
 
   return `
-[out:json][timeout:25];
+[out:json][timeout:8];
 (
   way["highway"~"^(path|footway|track|bridleway|cycleway)$"](${bbox});
   way["route"~"^(hiking|foot|bicycle|mtb|ski)$"](${bbox});
@@ -2083,9 +2083,15 @@ async function fetchOsmTrailsFromOverpass(bounds) {
     body
   });
 
-  if (!res.ok) {
+if (!res.ok) {
+
+    const text = await res.text();
+
+    console.error("Overpass response:");
+    console.error(text);
+
     throw new Error(`Overpass HTTP ${res.status}`);
-  }
+}
 
   const json = await res.json();
   const elements = Array.isArray(json?.elements) ? json.elements : [];
