@@ -1540,6 +1540,52 @@ const OSM_AMENITY_TYPES = new Set([
 let osmTrailFeatures = [];
 let osmTrailsLoading = false;
 
+// ---------------------------------------------------------------------------
+// Sequential Overpass request queue.
+// Ensures only one Overpass request runs at a time.
+// ---------------------------------------------------------------------------
+
+const OVERPASS_REQUEST_DELAY_MS = 3000;
+
+const overpassQueue = [];
+let overpassQueueRunning = false;
+
+function enqueueOverpassRequest(task) {
+
+    overpassQueue.push(task);
+
+    if (!overpassQueueRunning)
+        processOverpassQueue();
+
+}
+
+async function processOverpassQueue() {
+
+    overpassQueueRunning = true;
+
+    while (overpassQueue.length) {
+
+        const task = overpassQueue.shift();
+
+        try {
+            await task();
+        }
+        catch (err) {
+            console.warn("Queued Overpass request failed.", err);
+        }
+
+        if (overpassQueue.length) {
+            await new Promise(resolve =>
+                setTimeout(resolve, OVERPASS_REQUEST_DELAY_MS)
+            );
+        }
+    }
+
+    overpassQueueRunning = false;
+
+}
+
+
 function setOsmTrailsStatus(msg) {
   if (osmTrailsStatus) osmTrailsStatus.textContent = msg;
 }
@@ -2159,7 +2205,7 @@ function loadOsmTrailsAfterSearchMoveIfEnabled() {
   setTimeout(() => {
     try {
       if (typeof loadOsmTrailsForVisibleArea === 'function') {
-        loadOsmTrailsForVisibleArea();
+        enqueueOverpassRequest(() => loadOsmTrailsForVisibleArea());
       }
     } catch (err) {
       console.warn('OSM trail auto-load after search failed:', err);
