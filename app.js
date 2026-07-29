@@ -1523,18 +1523,15 @@ const OSM_TRAILS_MIN_LOAD_ZOOM = 13;
 const OSM_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 
 const OSM_AMENITY_TYPES = new Set([
-    'bench',
-    'picnic_table',
-    'toilets',
-    'drinking_water',
-    'waste_basket',
-    'information',
+    'parking',
     'shelter',
-    'bbq',
-    'waste_disposal',
-    'picnic_site',
     'camp_site',
-    'wilderness_hut'
+    'wilderness_hut',
+    'trailhead',
+    'viewpoint',
+    'slipway',
+    'waterfall',
+    'peak'
 ]);
 
 let osmTrailFeatures = [];
@@ -2483,25 +2480,42 @@ function buildOverpassPoiQuery(bounds) {
   const e = bounds.getEast();
   const bbox = `${s},${w},${n},${e}`;
 
-  return `
+return `
 [out:json][timeout:25];
+
 (
-  node["tourism"~"^(viewpoint|attraction|information|picnic_site|camp_site|wilderness_hut)$"](${bbox});
-  way["tourism"~"^(viewpoint|attraction|information|picnic_site|camp_site|wilderness_hut)$"](${bbox});
-  relation["tourism"~"^(viewpoint|attraction|information|picnic_site|camp_site|wilderness_hut)$"](${bbox});
+  // Trailheads
+  node["tourism"="trailhead"](${bbox});
 
-  node["waterway"="waterfall"](${bbox});
-  way["waterway"="waterfall"](${bbox});
-  relation["waterway"="waterfall"](${bbox});
+  // Viewpoints
+  node["tourism"="viewpoint"](${bbox});
 
-  node["natural"~"^(peak|cave_entrance|beach|spring)$"](${bbox});
-  way["natural"~"^(peak|cave_entrance|beach|spring)$"](${bbox});
-  relation["natural"~"^(peak|cave_entrance|beach|spring)$"](${bbox});
+  // Campgrounds
+  node["tourism"="camp_site"](${bbox});
+  way["tourism"="camp_site"](${bbox});
 
-  node["amenity"~"^(shelter|parking|toilets|drinking_water)$"](${bbox});
-  way["amenity"~"^(shelter|parking|toilets|drinking_water)$"](${bbox});
-  relation["amenity"~"^(shelter|parking|toilets|drinking_water)$"](${bbox});
+  // Wilderness huts
+  node["tourism"="wilderness_hut"](${bbox});
+  way["tourism"="wilderness_hut"](${bbox});
+
+  // Parking
+  node["amenity"="parking"](${bbox});
+  way["amenity"="parking"](${bbox});
+
+  // Shelters
+  node["amenity"="shelter"](${bbox});
+
+  // Boat launches
+  node["leisure"="slipway"](${bbox});
+
+ // Waterfalls
+node["waterway"="waterfall"](${bbox});
+way["waterway"="waterfall"](${bbox});
+
+  // Peaks
+  node["natural"="peak"](${bbox});
 );
+
 out center tags ${OSM_POI_MAX_FEATURES};
 `;
 }
