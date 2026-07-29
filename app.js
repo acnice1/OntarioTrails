@@ -2599,8 +2599,7 @@ async function loadOsmPoiForVisibleArea() {
 
     if (!map.hasLayer(osmPoiLayer))
       osmPoiLayer.addTo(map);
-
-    setOsmPoiStatus("Using cached POIs.");
+//    setOsmPoiStatus("Using cached POIs.");
     return;
   }
 
