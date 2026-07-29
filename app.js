@@ -728,7 +728,7 @@ function scheduleOsmTrailLoadAfterSearch() {
         return;
 
 // Already have coverage for this area?
-if (isCurrentViewportCoveredByCachedOsm())
+if (isCurrentViewportCovered(OSM_TRAILS_AREAS_KEY))
     return;
 
     // Cancel previous pending load.
@@ -1672,7 +1672,7 @@ function leafletBoundsToStored(bounds) {
 
 }
 
-function mergeCachedDownloadAreas(newBounds) {
+function mergeCachedDownloadAreas(storageKey, newBounds) {
 
     if (!newBounds) return;
 
@@ -1682,7 +1682,7 @@ function mergeCachedDownloadAreas(newBounds) {
 
     try {
 
-        const raw = localStorage.getItem(OSM_TRAILS_AREAS_KEY);
+        const raw = localStorage.getItem(storageKey);
         areas = raw ? JSON.parse(raw) : [];
 
     } catch {
@@ -1717,10 +1717,10 @@ function mergeCachedDownloadAreas(newBounds) {
 
     try {
 
-        localStorage.setItem(
-            OSM_TRAILS_AREAS_KEY,
-            JSON.stringify(keep)
-        );
+localStorage.setItem(
+    storageKey,
+    JSON.stringify(keep)
+);
 
     } catch (err) {
 
@@ -1734,13 +1734,13 @@ function mergeCachedDownloadAreas(newBounds) {
 // Returns true if the current viewport is already covered by one or more
 // cached OSM download areas.
 // ---------------------------------------------------------------------------
-function isCurrentViewportCoveredByCachedOsm() {
+function isCurrentViewportCovered(storageKey) {
 
     const viewBounds = map.getBounds();
 
     try {
 
-        const raw = localStorage.getItem(OSM_TRAILS_AREAS_KEY);
+        const raw = localStorage.getItem(storageKey);
         const cachedAreas = raw ? JSON.parse(raw) : [];
 
         if (!Array.isArray(cachedAreas))
@@ -2586,16 +2586,36 @@ function updateOsmPoiVisibility() {
   }
 }
 
+
 async function loadOsmPoiForVisibleArea() {
+
   if (!showOsmPoi?.checked) return;
 
+  // Already have POIs for this area?
+  if (isCurrentViewportCovered(OSM_POI_AREAS_KEY)) {
+
+    renderOsmPoiLayer();
+
+    if (!map.hasLayer(osmPoiLayer))
+      osmPoiLayer.addTo(map);
+
+    setOsmPoiStatus("Using cached POIs.");
+    return;
+  }
+
   const z = map.getZoom();
-  
 
   if (z < OSM_POI_MIN_LOAD_ZOOM) {
+
     renderOsmPoiLayer();
-    if (!map.hasLayer(osmPoiLayer)) osmPoiLayer.addTo(map);
-    console.info(`OSM POIs are zoom-gated. Zoom to z${OSM_POI_MIN_LOAD_ZOOM}+ to refresh. Current zoom: z${z}.`);
+
+    if (!map.hasLayer(osmPoiLayer))
+      osmPoiLayer.addTo(map);
+
+    console.info(
+      `OSM POIs are zoom-gated. Zoom to z${OSM_POI_MIN_LOAD_ZOOM}+ to refresh. Current zoom: z${z}.`
+    );
+
     return;
   }
 
@@ -2604,6 +2624,7 @@ async function loadOsmPoiForVisibleArea() {
   osmPoiLoading = true;
 
   try {
+
     const fresh = await fetchOsmPoiFromOverpass(map.getBounds());
 
     osmPoiFeatures = dedupeOsmPoiFeatures([
@@ -2612,20 +2633,36 @@ async function loadOsmPoiForVisibleArea() {
     ]);
 
     saveOsmPoiFeaturesToStorage(osmPoiFeatures);
+
+    // Remember this downloaded area.
+    mergeCachedDownloadAreas(
+      OSM_POI_AREAS_KEY,
+      map.getBounds()
+    );
+
     renderOsmPoiLayer();
 
     if (showOsmPoi?.checked && !map.hasLayer(osmPoiLayer)) {
       osmPoiLayer.addTo(map);
     }
 
-    console.info(`Loaded ${fresh.length} OSM POI(s). Cache now has ${osmPoiFeatures.length}.`);
+    console.info(
+      `Loaded ${fresh.length} OSM POI(s). Cache now has ${osmPoiFeatures.length}.`
+    );
+
     try { updateLayerHealth?.(); } catch {}
+
   } catch (err) {
+
     console.warn('OSM POI load failed:', err);
+
   } finally {
+
     osmPoiLoading = false;
+
   }
 }
+
 
 function scheduleOsmPoiLoad() {
 
