@@ -2226,8 +2226,9 @@ function loadOsmTrailsAfterSearchMoveIfEnabled() {
 // - Focused on trail-relevant outdoor POIs.
 
 const OSM_POI_CACHE_KEY = 'ontarioTrails.osmPoi.features.v1';
+const OSM_POI_AREAS_KEY = 'ontarioTrails.osmPoi.areas.v1';
 const OSM_POI_MIN_LOAD_ZOOM = 13;
-const OSM_POI_MAX_FEATURES = 600;
+const OSM_POI_MAX_FEATURES = 500;
 
 let osmPoiFeatures = [];
 let osmPoiLoading = false;
