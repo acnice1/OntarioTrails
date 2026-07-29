@@ -2227,8 +2227,11 @@ function loadOsmTrailsAfterSearchMoveIfEnabled() {
 
 const OSM_POI_CACHE_KEY = 'ontarioTrails.osmPoi.features.v1';
 const OSM_POI_AREAS_KEY = 'ontarioTrails.osmPoi.areas.v1';
-const OSM_POI_MIN_LOAD_ZOOM = 13;
+const OSM_POI_MIN_LOAD_ZOOM = 14;
 const OSM_POI_MAX_FEATURES = 500;
+
+const OSM_POI_RETRY_DELAY_MS = 30000; // 30 seconds
+let lastPoiFailure = 0;
 
 let osmPoiFeatures = [];
 let osmPoiLoading = false;
@@ -2481,40 +2484,18 @@ function buildOverpassPoiQuery(bounds) {
   const e = bounds.getEast();
   const bbox = `${s},${w},${n},${e}`;
 
-return `
+  return `
 [out:json][timeout:25];
 
 (
-  // Trailheads
   node["tourism"="trailhead"](${bbox});
-
-  // Viewpoints
   node["tourism"="viewpoint"](${bbox});
-
-  // Campgrounds
   node["tourism"="camp_site"](${bbox});
-  way["tourism"="camp_site"](${bbox});
-
-  // Wilderness huts
   node["tourism"="wilderness_hut"](${bbox});
-  way["tourism"="wilderness_hut"](${bbox});
-
-  // Parking
   node["amenity"="parking"](${bbox});
-  way["amenity"="parking"](${bbox});
-
-  // Shelters
   node["amenity"="shelter"](${bbox});
-
-  // Boat launches
-  node["leisure"="slipway"](${bbox});
-
- // Waterfalls
-node["waterway"="waterfall"](${bbox});
-way["waterway"="waterfall"](${bbox});
-
-  // Peaks
   node["natural"="peak"](${bbox});
+  node["natural"="waterfall"](${bbox});
 );
 
 out center tags ${OSM_POI_MAX_FEATURES};
@@ -2590,78 +2571,110 @@ function updateOsmPoiVisibility() {
 
 async function loadOsmPoiForVisibleArea() {
 
-  if (!showOsmPoi?.checked) return;
+    if (!showOsmPoi?.checked)
+        return;
 
-  // Already have POIs for this area?
-  if (isCurrentViewportCovered(OSM_POI_AREAS_KEY)) {
+    const covered = isCurrentViewportCovered(OSM_POI_AREAS_KEY);
 
-    renderOsmPoiLayer();
+   /* console.log("POI load", {
+        covered,
+        zoom: map.getZoom(),
+        loading: osmPoiLoading
+    });
+*/
 
-    if (!map.hasLayer(osmPoiLayer))
-      osmPoiLayer.addTo(map);
-//    setOsmPoiStatus("Using cached POIs.");
-    return;
-  }
+    // Already have this area cached.
+    if (covered) {
 
-  const z = map.getZoom();
+        renderOsmPoiLayer();
 
-  if (z < OSM_POI_MIN_LOAD_ZOOM) {
+        if (!map.hasLayer(osmPoiLayer))
+            osmPoiLayer.addTo(map);
 
-    renderOsmPoiLayer();
-
-    if (!map.hasLayer(osmPoiLayer))
-      osmPoiLayer.addTo(map);
-
-    console.info(
-      `OSM POIs are zoom-gated. Zoom to z${OSM_POI_MIN_LOAD_ZOOM}+ to refresh. Current zoom: z${z}.`
-    );
-
-    return;
-  }
-
-  if (osmPoiLoading) return;
-
-  osmPoiLoading = true;
-
-  try {
-
-    const fresh = await fetchOsmPoiFromOverpass(map.getBounds());
-
-    osmPoiFeatures = dedupeOsmPoiFeatures([
-      ...osmPoiFeatures,
-      ...fresh
-    ]);
-
-    saveOsmPoiFeaturesToStorage(osmPoiFeatures);
-
-    // Remember this downloaded area.
-    mergeCachedDownloadAreas(
-      OSM_POI_AREAS_KEY,
-      map.getBounds()
-    );
-
-    renderOsmPoiLayer();
-
-    if (showOsmPoi?.checked && !map.hasLayer(osmPoiLayer)) {
-      osmPoiLayer.addTo(map);
+        return;
     }
 
-    console.info(
-      `Loaded ${fresh.length} OSM POI(s). Cache now has ${osmPoiFeatures.length}.`
-    );
+    const z = map.getZoom();
 
-    try { updateLayerHealth?.(); } catch {}
+    if (z < OSM_POI_MIN_LOAD_ZOOM) {
 
-  } catch (err) {
+        renderOsmPoiLayer();
 
-    console.warn('OSM POI load failed:', err);
+        if (!map.hasLayer(osmPoiLayer))
+            osmPoiLayer.addTo(map);
 
-  } finally {
+        console.info(
+            `OSM POIs are zoom-gated. Zoom to z${OSM_POI_MIN_LOAD_ZOOM}+ to refresh. Current zoom: z${z}.`
+        );
 
-    osmPoiLoading = false;
+        return;
+    }
 
-  }
+    // Already downloading.
+    if (osmPoiLoading)
+        return;
+
+    // Recently failed (429/504)? Give Overpass a break.
+    if (Date.now() - lastPoiFailure < OSM_POI_RETRY_DELAY_MS) {
+
+        console.info(
+            `Skipping POI reload for ${Math.ceil((OSM_POI_RETRY_DELAY_MS - (Date.now() - lastPoiFailure)) / 1000)}s after recent Overpass failure.`
+        );
+
+        return;
+    }
+
+    osmPoiLoading = true;
+
+    try {
+
+        const fresh = await fetchOsmPoiFromOverpass(map.getBounds());
+
+        osmPoiFeatures = dedupeOsmPoiFeatures([
+            ...osmPoiFeatures,
+            ...fresh
+        ]);
+
+        saveOsmPoiFeaturesToStorage(osmPoiFeatures);
+
+        // Record this viewport as downloaded even if it contained zero POIs.
+        mergeCachedDownloadAreas(
+            OSM_POI_AREAS_KEY,
+            map.getBounds()
+        );
+
+        renderOsmPoiLayer();
+
+        if (showOsmPoi?.checked && !map.hasLayer(osmPoiLayer))
+            osmPoiLayer.addTo(map);
+
+        console.info(
+            `Loaded ${fresh.length} OSM POI(s). Cache now has ${osmPoiFeatures.length}.`
+        );
+
+        try {
+            updateLayerHealth?.();
+        } catch {}
+
+    } catch (err) {
+
+        // Only back off for server throttling/timeouts.
+        if (
+            err?.message?.includes("429") ||
+            err?.message?.includes("504")
+        ) {
+            lastPoiFailure = Date.now();
+        }
+
+        console.warn("OSM POI load failed:", err);
+
+    } finally {
+
+        osmPoiLoading = false;
+
+    }
 }
+
 
 
 function scheduleOsmPoiLoad() {
@@ -2673,7 +2686,7 @@ function scheduleOsmPoiLoad() {
 
   clearTimeout(osmPoiMoveTimer);
   osmPoiMoveTimer = setTimeout(() => {
-    loadOsmPoiForVisibleArea();
+   // loadOsmPoiForVisibleArea();
   }, 500);
 }
 
@@ -2719,8 +2732,8 @@ document.addEventListener('click', (e) => {
 });
 
 // Initial OSM POI cache load.
-osmPoiFeatures = loadOsmPoiFeaturesFromStorage();
-renderOsmPoiLayer();
+//osmPoiFeatures = loadOsmPoiFeaturesFromStorage();
+//renderOsmPoiLayer();
 
 showOsmPoi?.addEventListener('change', updateOsmPoiVisibility);
 
@@ -2728,8 +2741,8 @@ map.on('moveend zoomend', () => {
 
     if (showOsmPoi?.checked) {
 
-        renderOsmPoiLayer();      // Refresh visible cached POIs
-        scheduleOsmPoiLoad();     // Download any missing POIs
+     //   renderOsmPoiLayer();      // Refresh visible cached POIs
+      //  scheduleOsmPoiLoad();     // Download any missing POIs
 
     }
 
