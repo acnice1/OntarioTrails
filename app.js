@@ -830,6 +830,146 @@ if (isCurrentViewportCovered(OSM_TRAILS_AREAS_KEY))
 
   // --- helpers: keep just above runSearch -----------------------------
 
+/*
+function tryParseCoordinates(text) {
+
+    const cleaned = scrubCoordinateText(text);
+
+    const match = cleaned.match(
+        /(-?\d{1,2}\.\d+)\s*,?\s*(-?\d{1,3}\.\d+)/
+    );
+
+    if (!match)
+        return null;
+
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+
+    if (lat < -90 || lat > 90)
+        return null;
+
+    if (lng < -180 || lng > 180)
+        return null;
+
+    return { lat, lng };
+}
+
+*/
+function tryParseCoordinates(text) {
+
+    text = String(text)
+        .trim()
+        .replace(/[−–—]/g, "-")
+        .replace(/[º]/g, "°");
+
+    // ---------------------------------------
+    // Google Maps URLs
+    // ---------------------------------------
+
+    try {
+
+        const url = new URL(text);
+
+        let value =
+            url.searchParams.get("q") ||
+            url.searchParams.get("ll");
+
+        if (!value) {
+            const m = url.pathname.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+            if (m)
+                value = `${m[1]},${m[2]}`;
+        }
+
+        if (value)
+            text = value;
+
+    } catch {
+        // Not a URL
+    }
+
+    // ---------------------------------------
+    // Decimal with hemisphere
+    // 45.05389°N, 76.88544°W
+    // ---------------------------------------
+
+    let m = text.match(
+        /^\s*(\d{1,2}(?:\.\d+)?)\s*°?\s*([NS])\s*,?\s*(\d{1,3}(?:\.\d+)?)\s*°?\s*([EW])\s*$/i
+    );
+
+    if (m) {
+
+        let lat = Number(m[1]);
+        let lng = Number(m[3]);
+
+        if (m[2].toUpperCase() === "S")
+            lat = -lat;
+
+        if (m[4].toUpperCase() === "W")
+            lng = -lng;
+
+        return { lat, lng };
+    }
+
+    // ---------------------------------------
+    // DMS
+    // 45°16'22.8"N 76°23'46.5"W
+    // ---------------------------------------
+
+    m = text.match(
+        /^\s*(\d{1,2})\D+(\d{1,2})\D+(\d+(?:\.\d+)?)\D*([NS])\D+(\d{1,3})\D+(\d{1,2})\D+(\d+(?:\.\d+)?)\D*([EW])\s*$/i
+    );
+
+    if (m) {
+
+        let lat =
+            Number(m[1]) +
+            Number(m[2]) / 60 +
+            Number(m[3]) / 3600;
+
+        let lng =
+            Number(m[5]) +
+            Number(m[6]) / 60 +
+            Number(m[7]) / 3600;
+
+        if (m[4].toUpperCase() === "S")
+            lat = -lat;
+
+        if (m[8].toUpperCase() === "W")
+            lng = -lng;
+
+        return { lat, lng };
+    }
+
+    // ---------------------------------------
+    // Plain decimal
+    // ---------------------------------------
+
+    if (!/[NSEW]/i.test(text)) {
+
+        m = text.match(
+            /^\s*\(?\s*(-?\d{1,2}(?:\.\d+)?)\s*,?\s*(-?\d{1,3}(?:\.\d+)?)\s*\)?\s*$/
+        );
+
+        if (m) {
+
+            const lat = Number(m[1]);
+            const lng = Number(m[2]);
+
+            if (
+                Number.isFinite(lat) &&
+                Number.isFinite(lng) &&
+                Math.abs(lat) <= 90 &&
+                Math.abs(lng) <= 180
+            ) {
+                return { lat, lng };
+            }
+        }
+    }
+
+    return null;
+}
+
+
 
 // detect water-like results by Nominatim class/type
 function isWaterFeature(r) {
@@ -972,6 +1112,73 @@ const WATER_WORD_RE = /\b(lake|lac|river|rivière|creek|pond)\b/i;
 
 // --- UPDATED runSearch ---------------------------------
 const runSearch = async (q, mySeq) => {
+
+  const coord = tryParseCoordinates(q);
+
+if (coord) {
+
+    map.setView([coord.lat, coord.lng], 15);
+
+    if (searchMarker)
+        map.removeLayer(searchMarker);
+
+const popupHtml = `
+<div class="popup">
+
+    <div style="font-weight:700;font-size:15px;margin-bottom:8px">
+        📍 Coordinate
+    </div>
+
+    <table class="kv">
+        <tr>
+            <th>Lat</th>
+            <td>${coord.lat.toFixed(6)}</td>
+        </tr>
+        <tr>
+            <th>Lon</th>
+            <td>${coord.lng.toFixed(6)}</td>
+        </tr>
+    </table>
+
+    <div class="pin-popup-actions" style="margin-top:10px">
+
+<input
+    id="coordPinName"
+    type="text"
+    value=""
+    placeholder="Pin name"
+    style="width:100%;margin-bottom:8px"
+/>
+
+<button class="btn"
+    onclick="saveCoordinatePin(
+        ${coord.lat},
+        ${coord.lng},
+        document.getElementById('coordPinName').value
+    )">
+    📌 Add Pin
+</button>
+        <button class="btn"
+            onclick="window.open('https://www.google.com/maps/dir/?api=1&destination=${coord.lat},${coord.lng}','_blank')">
+            🧭 Directions
+        </button>
+    </div>
+
+</div>
+`;
+
+searchMarker = L.marker([coord.lat, coord.lng])
+    .addTo(map)
+    .bindPopup(popupHtml, { maxWidth: 260 })
+    .openPopup();
+
+    renderResults([{
+        name: `${coord.lat.toFixed(6)}, ${coord.lng.toFixed(6)}`,
+        center: L.latLng(coord.lat, coord.lng)
+    }]);
+
+    return;
+}
   if (!q || q.length < 3) {
     setResultsMessage('Type at least 3 characters…');
     return;
@@ -4019,6 +4226,36 @@ function iconForType(type) {
 }
 
   let pins = loadPinsFromStorage();
+
+  window.saveCoordinatePin = function (lat, lng, name) {
+    lat = Number(lat);
+    lng = Number(lng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        console.warn('Cannot save coordinate pin: invalid coordinates.');
+        return;
+    }
+
+    const label = String(name || '').trim() || 'Coordinate';
+
+    pins.push({
+        type: 'Coordinate',
+        label,
+        lat,
+        lng
+    });
+
+    savePinsToStorage();
+    refreshPins();
+
+    map.closePopup();
+
+    // Remove the temporary search marker after creating the real pin.
+    if (searchMarker) {
+        map.removeLayer(searchMarker);
+        searchMarker = null;
+    }
+};
 
   let pinsChanged = false;
 
