@@ -2120,53 +2120,98 @@ if (!res.ok) {
     .filter(f => f.geometry.coordinates.length >= 2);
 }
 
-async function loadOsmTrailsForVisibleArea() {
-  const z = map.getZoom();
+async function loadOsmTrailsForVisibleArea(force = false) {
 
-  if (z < OSM_TRAILS_MIN_LOAD_ZOOM) {
-    setOsmTrailsStatus(`Zoom in to z${OSM_TRAILS_MIN_LOAD_ZOOM}+ to load OSM trails. Current zoom: z${z}.`);
-    updateOsmLoadButtonState();
-    return;
-  }
+    if (osmTrailsLoading)
+        return;
 
-  if (osmTrailsLoading) return;
-
-  const bounds = map.getBounds();
-
-  osmTrailsLoading = true;
-  updateOsmLoadButtonState();
-
-  if (loadOsmTrailsBtn) loadOsmTrailsBtn.textContent = 'Loading OSM trails…';
-  setOsmTrailsStatus('Querying Overpass for visible map area…');
-
-  try {
-    const fresh = await fetchOsmTrailsFromOverpass(bounds);
-
-    // Refresh overlapping cached data automatically, then add fresh data.
-    const kept = osmTrailFeatures.filter(feature => !featureIntersectsBounds(feature, bounds));
-    osmTrailFeatures = dedupeOsmTrailFeatures([...kept, ...fresh]);
-
-    saveOsmTrailFeaturesToStorage(osmTrailFeatures);
-    addOrRefreshOsmTrailAreaRecord(bounds, fresh.length);
-    renderOsmTrailsLayer();
-
-    if (showTrailsOSM?.checked && !map.hasLayer(trailsOSMLayer)) {
-      trailsOSMLayer.addTo(map);
+    if (map.getZoom() < OSM_TRAILS_MIN_LOAD_ZOOM) {
+        setOsmTrailsStatus(
+            `Zoom to ${OSM_TRAILS_MIN_LOAD_ZOOM}+ to download OSM trails.`
+        );
+        return;
     }
 
-    const { total } = osmTrailCacheSummary();
-    setOsmTrailsStatus(`Loaded ${fresh.length} OSM trail segment(s). Cache now has ${total}.`);
+    if (!force && isCurrentViewportCovered(OSM_TRAILS_AREAS_KEY)) {
+        setOsmTrailsStatus("Current area already cached.");
+        return;
+    }
 
-    try { updateLayerHealth?.(); } catch {}
-  } catch (err) {
-    console.warn('OSM Overpass trail load failed:', err);
-    setOsmTrailsStatus(`OSM trail load failed: ${err?.message || 'network error'}.`);
-  } finally {
-    osmTrailsLoading = false;
-    if (loadOsmTrailsBtn) loadOsmTrailsBtn.textContent = 'Load / Refresh OSM trails';
-    updateOsmLoadButtonState();
-  }
+    const bounds = map.getBounds();
+
+    osmTrailsLoading = true;
+    loadOsmTrailsBtn?.setAttribute("disabled", "");
+    setOsmTrailsStatus("Queued...");
+
+    try {
+
+        await new Promise((resolve, reject) => {
+
+            enqueueOverpassRequest(async () => {
+
+                try {
+
+                    setOsmTrailsStatus("Downloading OSM trails...");
+
+                    const fresh = await fetchOsmTrailsFromOverpass(bounds);
+
+                    // Replace any cached features that overlap this download.
+                    const kept = osmTrailFeatures.filter(
+                        feature => !featureIntersectsBounds(feature, bounds)
+                    );
+
+                    osmTrailFeatures = dedupeOsmTrailFeatures([
+                        ...kept,
+                        ...fresh
+                    ]);
+
+                    saveOsmTrailFeaturesToStorage(osmTrailFeatures);
+                    addOrRefreshOsmTrailAreaRecord(bounds, fresh.length);
+                    renderOsmTrailsLayer();
+
+                    if (showTrailsOSM?.checked &&
+                        !map.hasLayer(trailsOSMLayer)) {
+                        trailsOSMLayer.addTo(map);
+                    }
+
+                    const { total } = osmTrailCacheSummary();
+
+                    setOsmTrailsStatus(
+                        `Loaded ${fresh.length} segment(s). Cache now has ${total}.`
+                    );
+
+                    try {
+                        updateLayerHealth?.();
+                    } catch {}
+
+                    resolve();
+
+                } catch (err) {
+
+                    reject(err);
+
+                }
+
+            });
+
+        });
+
+    } catch (err) {
+
+        console.error(err);
+        setOsmTrailsStatus(
+            `Download failed: ${err.message || err}`
+        );
+
+    } finally {
+
+        osmTrailsLoading = false;
+        loadOsmTrailsBtn?.removeAttribute("disabled");
+
+    }
+
 }
+
 
 function ensureTrailsOSMLoaded() {
   // Compatibility shim for existing Layer Health / Load all calls.
@@ -2208,7 +2253,7 @@ function loadOsmTrailsAfterSearchMoveIfEnabled() {
   setTimeout(() => {
     try {
       if (typeof loadOsmTrailsForVisibleArea === 'function') {
-        enqueueOverpassRequest(() => loadOsmTrailsForVisibleArea());
+       loadOsmTrailsForVisibleArea();
       }
     } catch (err) {
       console.warn('OSM trail auto-load after search failed:', err);
