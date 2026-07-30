@@ -2759,12 +2759,12 @@ document.addEventListener('click', (e) => {
   else if (/guidepost|information|peak|summit/i.test(typeLabel)) pinTypeForPoi = 'Trailhead';
 
   try {
-    pins.push({
-      type: pinTypeForPoi,
-      label: name,
-      lat,
-      lng
-    });
+pins.push({
+    type: pinTypeForPoi,
+    label: name,
+    lat: lat,
+    lng: lng
+});
 
     savePinsToStorage?.();
     refreshPins?.();
@@ -4020,6 +4020,12 @@ function iconForType(type) {
 
   let pins = loadPinsFromStorage();
 
+  let pinsChanged = false;
+
+
+if (pinsChanged)
+    savePinsToStorage();
+
   addPinBtn?.addEventListener('click', () => {
     const c = map.getCenter();
     pins.push({ type: pinType?.value || 'Other', label: (pinLabel?.value || '').trim(), lat: c.lat, lng: c.lng });
@@ -4143,48 +4149,78 @@ function formatCoords(lat, lng) {
   const f = (n) => (Math.abs(n).toFixed(5)) + (n >= 0 ? (n === lat ? '°N' : '°E') : (n === lat ? '°S' : '°W'));
   return `${f(lat)}, ${f(lng)}`;
 }
-function buildPinShareUrl(p) {
-  const url = new URL(window.location.href);
 
-  // Keep the current app path, but replace query params with a clean shared pin link.
-  url.search = '';
+function buildPinShareUrl(pin) {
+    const lat = Number(pin?.lat);
+    const lng = Number(pin?.lng);
 
-  url.searchParams.set('pin', '1');
-  url.searchParams.set('lat', Number(p.lat).toFixed(6));
-  url.searchParams.set('lng', Number(p.lng).toFixed(6));
-  url.searchParams.set('z', String(Math.max(map.getZoom(), 15)));
-  url.searchParams.set('type', p.type || 'Other');
-  url.searchParams.set('label', p.label || p.type || 'Shared pin');
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        throw new Error('This pin does not contain valid coordinates.');
+    }
 
-  return url.toString();
+    const url = new URL(window.location.href);
+
+    // Remove all existing query parameters and hash fragments.
+    url.search = '';
+    url.hash = '';
+
+    url.searchParams.set('lat', lat.toFixed(6));
+    url.searchParams.set('lng', lng.toFixed(6));
+
+    const label = String(pin?.label || pin?.type || 'Shared Location').trim();
+
+    if (label) {
+        url.searchParams.set('label', label);
+    }
+
+    return url.toString();
+}
+
+function buildGoogleMapsUrl(pin) {
+
+    return `https://www.google.com/maps/search/?api=1&query=${pin.lat},${pin.lng}`;
+
 }
 
 async function sharePin(p) {
-  const shareUrl = buildPinShareUrl(p);
-  const title = p.label || p.type || 'Shared pin';
 
-  // Best mobile experience: native share sheet where supported.
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title,
-        text: `${title} — Ontario Trails pin`,
-        url: shareUrl
-      });
-      return { ok: true, method: 'share' };
-    } catch (err) {
-      // User cancelled share sheet; don't treat as a hard failure.
-      if (err?.name === 'AbortError') return { ok: false, method: 'cancelled' };
+    const shareUrl = buildPinShareUrl(p);
+    const title = p.label || p.type || "Shared pin";
+
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title,
+                text: title,
+                url: shareUrl
+            });
+
+            return { ok: true, method: "share" };
+
+        } catch (err) {
+
+            if (err.name === "AbortError") {
+                return { ok: false, method: "cancelled" };
+            }
+        }
     }
-  }
 
-  // Desktop / fallback: copy link.
-  const copied = await copyTextWithFallback(shareUrl);
-  return {
-    ok: copied,
-    method: copied ? 'clipboard' : 'manual',
-    url: shareUrl
-  };
+    try {
+
+        await navigator.clipboard.writeText(shareUrl);
+
+        return { ok: true, method: "clipboard" };
+
+    } catch {
+
+        return {
+            ok: true,
+            method: "manual",
+            url: shareUrl
+        };
+
+    }
+
 }
 
 function pinPopupHtml(p) {
@@ -4197,7 +4233,13 @@ function pinPopupHtml(p) {
       <div style="font-size:.85rem;opacity:.7;margin-bottom:.6rem">${formatCoords(p.lat, p.lng)}</div>
 
       <div class="pin-popup-actions">
-        <button type="button" class="pin-share-inline">🔗 Share Pin</button>
+        <button class="pin-share-inline">
+    📤 Share
+</button>
+
+<button class="pin-google-inline">
+    🧭 Google Maps
+</button>
         <button type="button" class="pin-del-inline">🗑️ Delete pin</button>
       </div>
 
@@ -4305,6 +4347,7 @@ pins.forEach((p, idx) => {
     if (!node) return;
 
     const shareBtn = node.querySelector('.pin-share-inline');
+    const googleBtn = node.querySelector('.pin-google-inline');
     const deleteBtn = node.querySelector('.pin-del-inline');
     const statusEl = node.querySelector('.pin-share-status');
 
@@ -4332,6 +4375,22 @@ pins.forEach((p, idx) => {
       }
     });
 
+    googleBtn?.addEventListener('click', (clickEv) => {
+
+    clickEv.preventDefault();
+    clickEv.stopPropagation();
+
+    const i = pinMarkers.indexOf(m);
+
+    if (i < 0 || !pins[i]) return;
+
+    window.open(
+        buildGoogleMapsUrl(pins[i]),
+        "_blank"
+    );
+
+});
+
     deleteBtn?.addEventListener('click', (clickEv) => {
       clickEv.preventDefault();
       clickEv.stopPropagation();
@@ -4356,6 +4415,30 @@ pins.forEach((p, idx) => {
 // First render (if pins already loaded at boot)
 refreshPins();
 
+const params = new URLSearchParams(window.location.search);
+
+const lat = Number(params.get("lat"));
+const lng = Number(params.get("lng"));
+const label = params.get("label") || "Shared Location";
+
+if (Number.isFinite(lat) && Number.isFinite(lng)) {
+
+    const sharedMarker = L.marker([lat, lng])
+        .addTo(map)
+        .bindPopup(`
+            <b>${esc(label)}</b><br>
+            Shared location
+            <br><br>
+            <button class="btn save-shared-pin">
+                ⭐ Save to My Pins
+            </button>
+        `);
+
+    map.setView([lat, lng], 16);
+
+    sharedMarker.openPopup();
+
+}
   // ---------------------------------------------------------------------------
 // Locate / Follow / Reset View
 // ---------------------------------------------------------------------------
