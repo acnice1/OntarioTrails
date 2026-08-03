@@ -1156,7 +1156,7 @@ const popupHtml = `
         ${coord.lng},
         document.getElementById('coordPinName').value
     )">
-    📌 Add Pin
+    📌 Save Pin
 </button>
         <button class="btn"
             onclick="window.open('https://www.google.com/maps/dir/?api=1&destination=${coord.lat},${coord.lng}','_blank')">
