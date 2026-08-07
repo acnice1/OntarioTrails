@@ -4204,13 +4204,19 @@ syncOfflineBoxControls();
 // Pin icons by type (emoji-based for simplicity; easy to swap for custom SVG)
 // ---------------------------------------------------------------------------
 const PIN_ICONS = {
-  'Camping':  '🏕️',
-  'Trailhead': '🥾',
-  'Water':    '💧',
-  'Viewpoint':'📸',
-  'Hazard':   '⚠️',
-  'Parking':  '🅿️',
-  'Other':    '📍'
+  'Camping':     '🏕️',
+  'Trailhead':   '🥾',
+  'Parking':     '🅿️',
+  'Boat Launch': '🛶',
+  'Beach':       '🏖️',
+  'Shelter':     '🛖',
+  'Water':       '💧',
+  'Viewpoint':   '🔭',
+  'Waterfall':   '🌊',
+  'Toilet':      '🚻',
+  'Hazard':      '⚠️',
+  'Historic':    '🏛️',
+  'Other':       '📍'
 };
 
 // Generate a small divIcon for a given type
